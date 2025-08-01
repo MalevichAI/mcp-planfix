@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel
 
-from .config import config
-from .utils import log_api_call, format_error
+from config import config
+from utils import log_api_call, format_error
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,6 @@ class PlanfixAPI:
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {config.planfix_api_key}",
-            "X-User-Key": config.planfix_user_key,
             "User-Agent": "Planfix-MCP-Server/1.0.0"
         }
     
@@ -149,8 +148,9 @@ class PlanfixAPI:
         
         result = await self._request("POST", "task", data)
         
+        task_data = result.get("task", result)
         return Task(
-            id=result["id"],
+            id=task_data["id"],
             name=name,
             description=description,
             priority=priority,
@@ -159,17 +159,18 @@ class PlanfixAPI:
     
     async def get_task(self, task_id: int) -> Task:
         """Get task by ID."""
-        result = await self._request("GET", f"task/{task_id}")
+        result = await self._request("POST", f"task/{task_id}")
         
+        task_data = result.get("task", result)
         return Task(
-            id=result["id"],
-            name=result.get("name", ""),
-            description=result.get("description", ""),
-            status=result.get("status", {}).get("name"),
-            assignee=result.get("assignee", {}).get("name"),
-            project=result.get("project", {}).get("name"),
-            priority=result.get("priority"),
-            deadline=result.get("endDatePlan")
+            id=task_data["id"],
+            name=task_data.get("name", ""),
+            description=task_data.get("description", ""),
+            status=task_data.get("status", {}).get("name"),
+            assignee=task_data.get("assignee", {}).get("name"),
+            project=task_data.get("project", {}).get("name"),
+            priority=task_data.get("priority"),
+            deadline=task_data.get("endDatePlan")
         )
     
     async def search_tasks(
@@ -191,10 +192,11 @@ class PlanfixAPI:
         if status != "all":
             params["status"] = status
         
-        result = await self._request("GET", "task/list", params=params)
+        result = await self._request("POST", "task/list", params)
         
         tasks = []
-        for task_data in result.get("tasks", []):
+        task_list = result.get("tasks", result.get("data", []))
+        for task_data in task_list:
             tasks.append(Task(
                 id=task_data["id"],
                 name=task_data.get("name", ""),
@@ -248,18 +250,20 @@ class PlanfixAPI:
         
         result = await self._request("POST", "project", data)
         
+        project_data = result.get("project", result)
         return Project(
-            id=result["id"],
+            id=project_data["id"],
             name=name,
             description=description
         )
     
     async def get_projects(self) -> List[Project]:
         """Get list of projects."""
-        result = await self._request("GET", "project/list")
+        result = await self._request("POST", "project/list")
         
         projects = []
-        for project_data in result.get("projects", []):
+        project_list = result.get("projects", result.get("data", []))
+        for project_data in project_list:
             projects.append(Project(
                 id=project_data["id"],
                 name=project_data.get("name", ""),
@@ -291,8 +295,9 @@ class PlanfixAPI:
         
         result = await self._request("POST", "contact", data)
         
+        contact_data = result.get("contact", result)
         return Contact(
-            id=result["id"],
+            id=contact_data["id"],
             name=name,
             email=email,
             phone=phone,
@@ -303,10 +308,11 @@ class PlanfixAPI:
     async def get_contacts(self, limit: int = 20) -> List[Contact]:
         """Get recent contacts."""
         params = {"limit": limit, "orderBy": "dateCreate", "order": "desc"}
-        result = await self._request("GET", "contact/list", params=params)
+        result = await self._request("POST", "contact/list", params)
         
         contacts = []
-        for contact_data in result.get("contacts", []):
+        contact_list = result.get("contacts", result.get("data", []))
+        for contact_data in contact_list:
             contacts.append(Contact(
                 id=contact_data["id"],
                 name=contact_data.get("name", ""),
@@ -334,7 +340,7 @@ class PlanfixAPI:
             "groupBy": group_by
         }
         
-        result = await self._request("GET", "analytics/report", params=params)
+        result = await self._request("POST", "analytics/report", params)
         
         return {
             "report_type": report_type,
@@ -348,7 +354,7 @@ class PlanfixAPI:
     async def test_connection(self) -> bool:
         """Test API connection."""
         try:
-            await self._request("GET", "account/info")
+            await self._request("POST", "contact/list")
             return True
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
