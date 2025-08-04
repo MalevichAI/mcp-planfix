@@ -15,7 +15,7 @@ else:
     logging.basicConfig(level=logging.INFO)
 
 
-def format_task_list(tasks: List[Dict[str, Any]]) -> str:
+def format_task_list(tasks: List[Any]) -> str:
     """Format a list of tasks for display."""
     if not tasks:
         return "Задачи не найдены."
@@ -23,12 +23,23 @@ def format_task_list(tasks: List[Dict[str, Any]]) -> str:
     result = f"📋 Найдено задач: {len(tasks)}\n\n"
     
     for i, task in enumerate(tasks, 1):
-        task_id = task.get("id", "N/A")
-        name = task.get("name", "Без названия")
-        status = task.get("status", "Неизвестно")
-        assignee = task.get("assignee", "Не назначен")
-        project = task.get("project", "Без проекта")
-        deadline = task.get("deadline")
+        # Handle both dict and Task object formats
+        if hasattr(task, 'id'):
+            # Task object
+            task_id = task.id or "N/A"
+            name = task.name or "Без названия"
+            status = task.status or "Неизвестно"
+            assignee = task.assignee or "Не назначен"
+            project = task.project or "Без проекта"
+            deadline = task.deadline
+        else:
+            # Dict format
+            task_id = task.get("id", "N/A")
+            name = task.get("name", "Без названия")
+            status = task.get("status", "Неизвестно")
+            assignee = task.get("assignee", "Не назначен")
+            project = task.get("project", "Без проекта")
+            deadline = task.get("deadline")
         
         result += f"{i}. 📌 **{name}** (#{task_id})\n"
         result += f"   └─ Статус: {status}\n"
@@ -61,7 +72,7 @@ def format_date(date_str: Optional[str]) -> str:
         return date_str
 
 
-def format_project_list(projects: List[Dict[str, Any]]) -> str:
+def format_project_list(projects: List[Any]) -> str:
     """Format a list of projects for display."""
     if not projects:
         return "Проекты не найдены."
@@ -69,11 +80,21 @@ def format_project_list(projects: List[Dict[str, Any]]) -> str:
     result = f"🎯 Найдено проектов: {len(projects)}\n\n"
     
     for i, project in enumerate(projects, 1):
-        project_id = project.get("id", "N/A")
-        name = project.get("name", "Без названия")
-        status = project.get("status", "Активный")
-        task_count = project.get("taskCount", 0)
-        owner = project.get("owner", "Не назначен")
+        # Handle both dict and Project object formats
+        if hasattr(project, 'id'):
+            # Project object
+            project_id = project.id or "N/A"
+            name = project.name or "Без названия"
+            status = project.status or "Активный"
+            task_count = project.task_count or 0
+            owner = project.owner or "Не назначен"
+        else:
+            # Dict format
+            project_id = project.get("id", "N/A")
+            name = project.get("name", "Без названия")
+            status = project.get("status", "Активный")
+            task_count = project.get("taskCount", 0)
+            owner = project.get("owner", "Не назначен")
         
         result += f"{i}. 🎯 **{name}** (#{project_id})\n"
         result += f"   └─ Статус: {status}\n"
