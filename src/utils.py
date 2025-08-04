@@ -2,9 +2,10 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from .config import config
+from .models import Task, Project, Contact, Employee, Comment, File, Report, Process
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ else:
     logging.basicConfig(level=logging.INFO)
 
 
-def format_task_list(tasks: List[Any]) -> str:
+def format_task_list(tasks: List[Task]) -> str:
     """Format a list of tasks for display."""
     if not tasks:
         return "Задачи не найдены."
@@ -23,23 +24,13 @@ def format_task_list(tasks: List[Any]) -> str:
     result = f"📋 Найдено задач: {len(tasks)}\n\n"
     
     for i, task in enumerate(tasks, 1):
-        # Handle both dict and Task object formats
-        if hasattr(task, 'id'):
-            # Task object
-            task_id = task.id or "N/A"
-            name = task.name or "Без названия"
-            status = task.status or "Неизвестно"
-            assignee = task.assignee or "Не назначен"
-            project = task.project or "Без проекта"
-            deadline = task.deadline
-        else:
-            # Dict format
-            task_id = task.get("id", "N/A")
-            name = task.get("name", "Без названия")
-            status = task.get("status", "Неизвестно")
-            assignee = task.get("assignee", "Не назначен")
-            project = task.get("project", "Без проекта")
-            deadline = task.get("deadline")
+        # Task object
+        task_id = task.id or "N/A"
+        name = task.name or "Без названия"
+        status = task.status or "Неизвестно"
+        assignee = task.assignee or "Не назначен"
+        project = task.project or "Без проекта"
+        deadline = task.deadline
         
         result += f"{i}. 📌 **{name}** (#{task_id})\n"
         result += f"   └─ Статус: {status}\n"
@@ -48,6 +39,158 @@ def format_task_list(tasks: List[Any]) -> str:
         
         if deadline:
             result += f"   └─ ⏰ Срок: {format_date(deadline)}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_contact_list(contacts: List[Contact]) -> str:
+    """Format a list of contacts for display."""
+    if not contacts:
+        return "Контакты не найдены."
+    
+    result = f"👥 Найдено контактов: {len(contacts)}\n\n"
+    
+    for i, contact in enumerate(contacts, 1):
+        name = contact.name or "Без имени"
+        midname = contact.midname or ""
+        lastname = contact.lastname or ""
+        full_name = f"{name} {midname} {lastname}".strip()
+        
+        result += f"{i}. 👤 **{full_name}** (#{contact.id})\n"
+        
+        if contact.email:
+            result += f"   └─ 📧 {contact.email}\n"
+        if contact.phone:
+            result += f"   └─ 📞 {contact.phone}\n"
+        if contact.company:
+            result += f"   └─ 🏢 {contact.company}\n"
+        if contact.position:
+            result += f"   └─ 💼 {contact.position}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_employee_list(employees: List[Employee]) -> str:
+    """Format a list of employees for display."""
+    if not employees:
+        return "Сотрудники не найдены."
+    
+    result = f"👨‍💼 Найдено сотрудников: {len(employees)}\n\n"
+    
+    for i, employee in enumerate(employees, 1):
+        name = employee.name or "Без имени"
+        result += f"{i}. 👨‍💼 **{name}** (#{employee.id})\n"
+        
+        if employee.email:
+            result += f"   └─ 📧 {employee.email}\n"
+        if employee.position:
+            result += f"   └─ 💼 {employee.position}\n"
+        if employee.status:
+            result += f"   └─ 🔄 {employee.status}\n"
+        if employee.last_activity:
+            result += f"   └─ ⏰ Последняя активность: {format_date(employee.last_activity)}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_comment_list(comments: List[Comment]) -> str:
+    """Format a list of comments for display."""
+    if not comments:
+        return "Комментарии не найдены."
+    
+    result = f"💬 Найдено комментариев: {len(comments)}\n\n"
+    
+    for i, comment in enumerate(comments, 1):
+        text = comment.text or "Без текста"
+        result += f"{i}. 💬 **Комментарий #{comment.id}**\n"
+        result += f"   └─ 📝 {text[:100]}{'...' if len(text) > 100 else ''}\n"
+        
+        if comment.author:
+            result += f"   └─ 👤 Автор: {comment.author}\n"
+        if comment.created_date:
+            result += f"   └─ 📅 Создан: {format_date(comment.created_date)}\n"
+        if comment.task_id:
+            result += f"   └─ 📋 Задача: #{comment.task_id}\n"
+        if comment.project_id:
+            result += f"   └─ 🎯 Проект: #{comment.project_id}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_file_list(files: List[File]) -> str:
+    """Format a list of files for display."""
+    if not files:
+        return "Файлы не найдены."
+    
+    result = f"📁 Найдено файлов: {len(files)}\n\n"
+    
+    for i, file in enumerate(files, 1):
+        name = file.name or "Без названия"
+        result += f"{i}. 📄 **{name}** (#{file.id})\n"
+        
+        if file.size:
+            size_mb = file.size / (1024 * 1024)
+            result += f"   └─ 📊 Размер: {size_mb:.2f} MB\n"
+        if file.author:
+            result += f"   └─ 👤 Автор: {file.author}\n"
+        if file.created_date:
+            result += f"   └─ 📅 Создан: {format_date(file.created_date)}\n"
+        if file.task_id:
+            result += f"   └─ 📋 Задача: #{file.task_id}\n"
+        if file.project_id:
+            result += f"   └─ 🎯 Проект: #{file.project_id}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_report_list(reports: List[Report]) -> str:
+    """Format a list of reports for display."""
+    if not reports:
+        return "Отчёты не найдены."
+    
+    result = f"📊 Найдено отчётов: {len(reports)}\n\n"
+    
+    for i, report in enumerate(reports, 1):
+        name = report.name or "Без названия"
+        result += f"{i}. 📊 **{name}** (#{report.id})\n"
+        
+        if report.description:
+            result += f"   └─ 📄 {report.description[:100]}{'...' if len(report.description) > 100 else ''}\n"
+        if report.created_date:
+            result += f"   └─ 📅 Создан: {format_date(report.created_date)}\n"
+        
+        result += "\n"
+    
+    return result.strip()
+
+
+def format_process_list(processes: List[Process]) -> str:
+    """Format a list of processes for display."""
+    if not processes:
+        return "Процессы не найдены."
+    
+    result = f"⚙️ Найдено процессов: {len(processes)}\n\n"
+    
+    for i, process in enumerate(processes, 1):
+        name = process.name or "Без названия"
+        result += f"{i}. ⚙️ **{name}** (#{process.id})\n"
+        
+        if process.status:
+            result += f"   └─ 🔄 Статус: {process.status}\n"
+        if process.description:
+            result += f"   └─ 📄 {process.description[:100]}{'...' if len(process.description) > 100 else ''}\n"
+        if process.created_date:
+            result += f"   └─ 📅 Создан: {format_date(process.created_date)}\n"
         
         result += "\n"
     
@@ -72,7 +215,7 @@ def format_date(date_str: Optional[str]) -> str:
         return date_str
 
 
-def format_project_list(projects: List[Any]) -> str:
+def format_project_list(projects: List[Project]) -> str:
     """Format a list of projects for display."""
     if not projects:
         return "Проекты не найдены."
@@ -80,21 +223,12 @@ def format_project_list(projects: List[Any]) -> str:
     result = f"🎯 Найдено проектов: {len(projects)}\n\n"
     
     for i, project in enumerate(projects, 1):
-        # Handle both dict and Project object formats
-        if hasattr(project, 'id'):
-            # Project object
-            project_id = project.id or "N/A"
-            name = project.name or "Без названия"
-            status = project.status or "Активный"
-            task_count = project.task_count or 0
-            owner = project.owner or "Не назначен"
-        else:
-            # Dict format
-            project_id = project.get("id", "N/A")
-            name = project.get("name", "Без названия")
-            status = project.get("status", "Активный")
-            task_count = project.get("taskCount", 0)
-            owner = project.get("owner", "Не назначен")
+        # Project object
+        project_id = project.id or "N/A"
+        name = project.name or "Без названия"
+        status = project.status or "Активный"
+        task_count = project.task_count or 0
+        owner = project.owner or "Не назначен"
         
         result += f"{i}. 🎯 **{name}** (#{project_id})\n"
         result += f"   └─ Статус: {status}\n"
@@ -157,12 +291,13 @@ def validate_status(status: str) -> str:
 
 def safe_get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     """Safely get nested dictionary value."""
+    current: Any = data
     for key in keys:
-        if isinstance(data, dict) and key in data:
-            data = data[key]
+        if isinstance(current, dict) and key in current:
+            current = current[key]
         else:
             return default
-    return data
+    return current
 
 
 def truncate_text(text: str, max_length: int = 100) -> str:

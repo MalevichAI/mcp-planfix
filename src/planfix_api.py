@@ -4,9 +4,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
-from pydantic import BaseModel
-
 from .config import config
+from .models import Task, Project, Contact, Employee, Comment, File, Report, Process
 from .utils import log_api_call, format_error
 
 logger = logging.getLogger(__name__)
@@ -27,37 +26,7 @@ class PlanfixNotFoundError(PlanfixError):
     pass
 
 
-class Task(BaseModel):
-    """Task model."""
-    id: int
-    name: str
-    description: Optional[str] = None
-    status: Optional[str] = None
-    assignee: Optional[str] = None
-    project: Optional[str] = None
-    priority: Optional[str] = None
-    deadline: Optional[str] = None
-
-
-class Project(BaseModel):
-    """Project model."""
-    id: int
-    name: str
-    description: Optional[str] = None
-    status: Optional[str] = None
-    owner: Optional[str] = None
-    client: Optional[str] = None
-    task_count: Optional[int] = 0
-
-
-class Contact(BaseModel):
-    """Contact model."""
-    id: int
-    name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    company: Optional[str] = None
-    position: Optional[str] = None
+# Models imported from models.py
 
 
 class PlanfixAPI:
@@ -350,6 +319,158 @@ class PlanfixAPI:
             "summary": result.get("summary", {})
         }
     
+    # Enhanced contact operations
+    async def get_contact(self, contact_id: int) -> Contact:
+        """Get contact by ID."""
+        result = await self._request("GET", f"contact/{contact_id}")
+        
+        contact_data = result.get("contact", result)
+        return Contact(
+            id=contact_data["id"],
+            name=contact_data.get("name", ""),
+            midname=contact_data.get("midname", ""),
+            lastname=contact_data.get("lastname", ""),
+            email=contact_data.get("email", ""),
+            phone=contact_data.get("phones", [{}])[0].get("number", "") if contact_data.get("phones") else "",
+            company=contact_data.get("company", ""),
+            position=contact_data.get("position", ""),
+            description=contact_data.get("description", ""),
+            is_company=contact_data.get("isCompany", False),
+            created_date=contact_data.get("createdDate", {}).get("datetime", "")
+        )
+    
+    async def search_contacts(self, query: str = "", limit: int = 20) -> List[Contact]:
+        """Search contacts by name or other criteria."""
+        params = {"limit": limit}
+        if query:
+            params["query"] = query
+            
+        result = await self._request("POST", "contact/list", params)
+        
+        contacts = []
+        contact_list = result.get("contacts", result.get("data", []))
+        for contact_data in contact_list:
+            contacts.append(Contact(
+                id=contact_data["id"],
+                name=contact_data.get("name", ""),
+                midname=contact_data.get("midname", ""),
+                lastname=contact_data.get("lastname", ""),
+                email=contact_data.get("email", ""),
+                phone=contact_data.get("phones", [{}])[0].get("number", "") if contact_data.get("phones") else "",
+                company=contact_data.get("company", ""),
+                position=contact_data.get("position", ""),
+                description=contact_data.get("description", ""),
+                is_company=contact_data.get("isCompany", False),
+                created_date=contact_data.get("createdDate", {}).get("datetime", "")
+            ))
+        
+        return contacts
+    
+    # Employee operations
+    async def list_employees(self, limit: int = 20) -> List[Employee]:
+        """List employees."""
+        result = await self._request("POST", "user/list", {"limit": limit})
+        
+        employees = []
+        employee_list = result.get("users", result.get("data", []))
+        for employee_data in employee_list:
+            employees.append(Employee(
+                id=employee_data["id"],
+                name=employee_data.get("name", ""),
+                email=employee_data.get("email", ""),
+                position=employee_data.get("position", ""),
+                status=employee_data.get("status", {}).get("name", ""),
+                last_activity=employee_data.get("lastActivity", {}).get("datetime", "")
+            ))
+        
+        return employees
+    
+    # File operations
+    async def list_files(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[File]:
+        """List files."""
+        data = {"limit": limit}
+        if task_id:
+            data["taskId"] = task_id
+        if project_id:
+            data["projectId"] = project_id
+            
+        result = await self._request("POST", "file/list", data)
+        
+        files = []
+        file_list = result.get("files", result.get("data", []))
+        for file_data in file_list:
+            files.append(File(
+                id=file_data["id"],
+                name=file_data.get("name", ""),
+                size=file_data.get("size", 0),
+                created_date=file_data.get("createdDate", {}).get("datetime", ""),
+                author=file_data.get("author", {}).get("name", ""),
+                task_id=file_data.get("taskId"),
+                project_id=file_data.get("projectId")
+            ))
+        
+        return files
+    
+    # Comment operations  
+    async def list_comments(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[Comment]:
+        """List comments."""
+        data = {"limit": limit}
+        if task_id:
+            data["taskId"] = task_id
+        if project_id:
+            data["projectId"] = project_id
+            
+        result = await self._request("POST", "comment/list", data)
+        
+        comments = []
+        comment_list = result.get("comments", result.get("data", []))
+        for comment_data in comment_list:
+            comments.append(Comment(
+                id=comment_data["id"],
+                text=comment_data.get("text", ""),
+                author=comment_data.get("author", {}).get("name", ""),
+                created_date=comment_data.get("createdDate", {}).get("datetime", ""),
+                task_id=comment_data.get("taskId"),
+                project_id=comment_data.get("projectId")
+            ))
+        
+        return comments
+    
+    # Report operations
+    async def list_reports(self, limit: int = 20) -> List[Report]:
+        """List reports."""
+        result = await self._request("POST", "report/list", {"limit": limit})
+        
+        reports = []
+        report_list = result.get("reports", result.get("data", []))
+        for report_data in report_list:
+            reports.append(Report(
+                id=report_data["id"],
+                name=report_data.get("name", ""),
+                description=report_data.get("description", ""),
+                created_date=report_data.get("createdDate", {}).get("datetime", "")
+            ))
+        
+        return reports
+    
+    # Process operations
+    async def list_processes(self, limit: int = 20) -> List[Process]:
+        """List processes."""
+        result = await self._request("POST", "process/list", {"limit": limit})
+        
+        processes = []
+        process_list = result.get("processes", result.get("data", []))
+        for process_data in process_list:
+            processes.append(Process(
+                id=process_data["id"],
+                name=process_data.get("name", ""),
+                description=process_data.get("description", ""),
+                status=process_data.get("status", {}).get("name", ""),
+                created_date=process_data.get("createdDate", {}).get("datetime", "")
+            ))
+        
+        return processes
+
     # Test connection
     async def test_connection(self) -> bool:
         """Test API connection."""
