@@ -49,6 +49,20 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         logger.error(f"❌ Ошибка инициализации: {e}")
         raise
     
+    # Print available tools
+    try:
+        tools_response = await server.list_tools()
+        tools = tools_response
+        if tools and len(tools) > 0:
+            logger.info(f"🔧 Доступные инструменты MCP ({len(tools)} шт.):")
+            for tool in tools:
+                tool_name = getattr(tool, 'name', 'unknown')
+                logger.info(f"   └─ {tool_name}")
+        else:
+            logger.warning("⚠️ Нет зарегистрированных инструментов")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при получении списка инструментов: {e}")
+    
     # Provide context to handlers
     context = {
         "api": api,
