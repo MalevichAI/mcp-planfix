@@ -13,13 +13,14 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import sys
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
-from config import config
-from planfix_api import PlanfixError, api
-from utils import (
+from .config import config
+from .planfix_api import PlanfixAPI, PlanfixError
+from .utils import (
     format_analytics_report,
     format_date,
     format_error,
@@ -31,13 +32,14 @@ from utils import (
 # Configure logging
 logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO)
 logger = logging.getLogger(__name__)
-
+api = None
 # Lifespan context for server initialization
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     """Управление жизненным циклом сервера."""
     logger.info("🚀 Запуск Planfix MCP Server...")
-    
+    global api
+    api = PlanfixAPI()
     # Test API connection on startup
     try:
         connection_ok = await api.test_connection()
@@ -731,6 +733,11 @@ def plan_sprint(sprint_duration: int = 14) -> str:
 
 def main():
     """Точка входа для запуска сервера."""
+    print(sys.argv)
+    if len(sys.argv) > 1:
+        config.planfix_account = sys.argv[1]
+    if len(sys.argv) > 2:
+        config.planfix_api_key = sys.argv[2]
     try:
         logger.info("🚀 Запуск Planfix MCP Server...")
         mcp.run(transport="stdio")
