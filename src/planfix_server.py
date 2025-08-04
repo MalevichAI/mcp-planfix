@@ -155,53 +155,6 @@ async def search_tasks(
 
 # Removed create_project and add_contact - read-only scope
 
-@mcp.tool()
-async def get_analytics_report(
-    report_type: str,
-    period_start: str,
-    period_end: str,
-    group_by: str = "user",
-    ctx: Context = None
-) -> str:
-    """Получить аналитический отчёт из Planfix.
-    
-    Args:
-        report_type: Тип отчёта (time, finance, tasks)
-        period_start: Начало периода в формате YYYY-MM-DD
-        period_end: Конец периода в формате YYYY-MM-DD
-        group_by: Группировка данных (user, project, task_type)
-        
-    Returns:
-        Отформатированный аналитический отчёт
-        
-    Example:
-        get_analytics_report("time", "2024-01-01", "2024-01-31", "user")
-    """
-    try:
-        ctx.info(f"Получение отчёта: {report_type} за {period_start} - {period_end}")
-        
-        # Get report via API
-        report_data = await api.get_analytics_report(
-            report_type=report_type,
-            date_from=period_start,
-            date_to=period_end,
-            group_by=group_by
-        )
-        
-        # Format report
-        result = format_analytics_report(report_data)
-        
-        ctx.info(f"Отчёт {report_type} сформирован")
-        return result
-        
-    except PlanfixError as e:
-        error_msg = format_error(e, "получении отчёта")
-        ctx.error(f"Ошибка получения отчёта: {e}")
-        return error_msg
-    except Exception as e:
-        error_msg = format_error(e, "получении отчёта")
-        logger.error(f"Unexpected error getting report: {e}")
-        return error_msg
 
 # ============================================================================
 # COMPREHENSIVE READ-ONLY TOOLS - Search and List Operations
