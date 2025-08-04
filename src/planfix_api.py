@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel
 
-from config import config
-from utils import log_api_call, format_error
+from .config import config
+from .utils import log_api_call, format_error
 
 logger = logging.getLogger(__name__)
 

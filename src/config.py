@@ -13,10 +13,11 @@ load_dotenv()
 
 class PlanfixConfig(BaseSettings):
     """Configuration for Planfix API."""
+    model_config = {'extra': 'allow'}
     
     # Required Planfix API credentials
-    planfix_account: str
-    planfix_api_key: str
+    planfix_account: str = ''
+    planfix_api_key: str = ''
     
     # Optional configuration
     planfix_base_url: Optional[str] = None

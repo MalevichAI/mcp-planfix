@@ -13,13 +13,14 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import sys
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
-from config import config
-from planfix_api import PlanfixError, api
-from utils import (
+from .config import config
+from .planfix_api import PlanfixError, api
+from .utils import (
     format_analytics_report,
     format_date,
     format_error,
@@ -717,6 +718,10 @@ def plan_sprint(sprint_duration: int = 14) -> str:
 
 def main():
     """Точка входа для запуска сервера."""
+    if len(sys.argv) > 1:
+        config.planfix_account = sys.argv[1]
+    if len(sys.argv) > 2:
+        config.planfix_api_key = sys.argv[2]
     try:
         logger.info("🚀 Запуск Planfix MCP Server...")
         mcp.run(transport="stdio")
