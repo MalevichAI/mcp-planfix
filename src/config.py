@@ -16,8 +16,8 @@ class PlanfixConfig(BaseSettings):
     model_config = {'extra': 'allow'}
     
     # Required Planfix API credentials
-    planfix_account: str = ''
-    planfix_api_key: str = ''
+    planfix_account: str | None = None
+    planfix_api_key: str | None = None
     
     # Optional configuration
     planfix_base_url: Optional[str] = None
