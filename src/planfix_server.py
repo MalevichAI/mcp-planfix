@@ -719,7 +719,7 @@ def main():
     """Точка входа для запуска сервера."""
     try:
         logger.info("🚀 Запуск Planfix MCP Server...")
-        mcp.run()
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         logger.info("👋 Сервер остановлен пользователем")
     except Exception as e:
