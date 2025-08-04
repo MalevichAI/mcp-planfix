@@ -19,7 +19,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from mcp.server.fastmcp import Context, FastMCP
 
 from .config import config
-from .planfix_api import PlanfixAPI, PlanfixError, api
+from .planfix_api import PlanfixAPI, PlanfixError
 from .utils import (
     format_analytics_report,
     format_date,
