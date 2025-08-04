@@ -1,6 +1,5 @@
-"""Utility functions for Planfix MCP Server."""
+"""Utility functions and helpers for the Planfix MCP server."""
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -8,37 +7,32 @@ from .config import config
 from .models import Task, Project, Contact, Employee, Comment, File, Report, Process
 
 # Configure logging
+import logging
 logger = logging.getLogger(__name__)
-
-if config.debug:
-    logging.basicConfig(level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.INFO)
 
 
 def format_task_list(tasks: List[Task]) -> str:
     """Format a list of tasks for display."""
     if not tasks:
-        return "Задачи не найдены."
+        return "No tasks found."
     
-    result = f"📋 Найдено задач: {len(tasks)}\n\n"
+    result = f"Found {len(tasks)} tasks:\n\n"
     
     for i, task in enumerate(tasks, 1):
-        # Task object
         task_id = task.id or "N/A"
-        name = task.name or "Без названия"
-        status = task.status or "Неизвестно"
-        assignee = task.assignee or "Не назначен"
-        project = task.project or "Без проекта"
+        name = task.name or "No name"
+        status = task.status or "Unknown"
+        assignee = task.assignee or "Unassigned"
+        project = task.project or "No project"
         deadline = task.deadline
         
-        result += f"{i}. 📌 **{name}** (#{task_id})\n"
-        result += f"   └─ Статус: {status}\n"
-        result += f"   └─ Исполнитель: {assignee}\n"
-        result += f"   └─ Проект: {project}\n"
+        result += f"{i}. Task #{task_id}: {name}\n"
+        result += f"   Status: {status}\n"
+        result += f"   Assignee: {assignee}\n"
+        result += f"   Project: {project}\n"
         
         if deadline:
-            result += f"   └─ ⏰ Срок: {format_date(deadline)}\n"
+            result += f"   Deadline: {format_date(deadline)}\n"
         
         result += "\n"
     
@@ -48,26 +42,26 @@ def format_task_list(tasks: List[Task]) -> str:
 def format_contact_list(contacts: List[Contact]) -> str:
     """Format a list of contacts for display."""
     if not contacts:
-        return "Контакты не найдены."
+        return "No contacts found."
     
-    result = f"👥 Найдено контактов: {len(contacts)}\n\n"
+    result = f"Found {len(contacts)} contacts:\n\n"
     
     for i, contact in enumerate(contacts, 1):
-        name = contact.name or "Без имени"
+        name = contact.name or "No name"
         midname = contact.midname or ""
         lastname = contact.lastname or ""
         full_name = f"{name} {midname} {lastname}".strip()
         
-        result += f"{i}. 👤 **{full_name}** (#{contact.id})\n"
+        result += f"{i}. Contact #{contact.id}: {full_name}\n"
         
         if contact.email:
-            result += f"   └─ 📧 {contact.email}\n"
+            result += f"   Email: {contact.email}\n"
         if contact.phone:
-            result += f"   └─ 📞 {contact.phone}\n"
+            result += f"   Phone: {contact.phone}\n"
         if contact.company:
-            result += f"   └─ 🏢 {contact.company}\n"
+            result += f"   Company: {contact.company}\n"
         if contact.position:
-            result += f"   └─ 💼 {contact.position}\n"
+            result += f"   Position: {contact.position}\n"
         
         result += "\n"
     
@@ -77,22 +71,22 @@ def format_contact_list(contacts: List[Contact]) -> str:
 def format_employee_list(employees: List[Employee]) -> str:
     """Format a list of employees for display."""
     if not employees:
-        return "Сотрудники не найдены."
+        return "No employees found."
     
-    result = f"👨‍💼 Найдено сотрудников: {len(employees)}\n\n"
+    result = f"Found {len(employees)} employees:\n\n"
     
     for i, employee in enumerate(employees, 1):
-        name = employee.name or "Без имени"
-        result += f"{i}. 👨‍💼 **{name}** (#{employee.id})\n"
+        name = employee.name or "No name"
+        result += f"{i}. Employee #{employee.id}: {name}\n"
         
         if employee.email:
-            result += f"   └─ 📧 {employee.email}\n"
+            result += f"   Email: {employee.email}\n"
         if employee.position:
-            result += f"   └─ 💼 {employee.position}\n"
+            result += f"   Position: {employee.position}\n"
         if employee.status:
-            result += f"   └─ 🔄 {employee.status}\n"
+            result += f"   Status: {employee.status}\n"
         if employee.last_activity:
-            result += f"   └─ ⏰ Последняя активность: {format_date(employee.last_activity)}\n"
+            result += f"   Last activity: {format_date(employee.last_activity)}\n"
         
         result += "\n"
     
@@ -102,23 +96,23 @@ def format_employee_list(employees: List[Employee]) -> str:
 def format_comment_list(comments: List[Comment]) -> str:
     """Format a list of comments for display."""
     if not comments:
-        return "Комментарии не найдены."
+        return "No comments found."
     
-    result = f"💬 Найдено комментариев: {len(comments)}\n\n"
+    result = f"Found {len(comments)} comments:\n\n"
     
     for i, comment in enumerate(comments, 1):
-        text = comment.text or "Без текста"
-        result += f"{i}. 💬 **Комментарий #{comment.id}**\n"
-        result += f"   └─ 📝 {text[:100]}{'...' if len(text) > 100 else ''}\n"
+        text = comment.text or "No text"
+        result += f"{i}. Comment #{comment.id}\n"
+        result += f"   Text: {text[:100]}{'...' if len(text) > 100 else ''}\n"
         
         if comment.author:
-            result += f"   └─ 👤 Автор: {comment.author}\n"
+            result += f"   Author: {comment.author}\n"
         if comment.created_date:
-            result += f"   └─ 📅 Создан: {format_date(comment.created_date)}\n"
+            result += f"   Created: {format_date(comment.created_date)}\n"
         if comment.task_id:
-            result += f"   └─ 📋 Задача: #{comment.task_id}\n"
+            result += f"   Task: #{comment.task_id}\n"
         if comment.project_id:
-            result += f"   └─ 🎯 Проект: #{comment.project_id}\n"
+            result += f"   Project: #{comment.project_id}\n"
         
         result += "\n"
     
@@ -128,25 +122,25 @@ def format_comment_list(comments: List[Comment]) -> str:
 def format_file_list(files: List[File]) -> str:
     """Format a list of files for display."""
     if not files:
-        return "Файлы не найдены."
+        return "No files found."
     
-    result = f"📁 Найдено файлов: {len(files)}\n\n"
+    result = f"Found {len(files)} files:\n\n"
     
     for i, file in enumerate(files, 1):
-        name = file.name or "Без названия"
-        result += f"{i}. 📄 **{name}** (#{file.id})\n"
+        name = file.name or "No name"
+        result += f"{i}. File #{file.id}: {name}\n"
         
         if file.size:
             size_mb = file.size / (1024 * 1024)
-            result += f"   └─ 📊 Размер: {size_mb:.2f} MB\n"
+            result += f"   Size: {size_mb:.2f} MB\n"
         if file.author:
-            result += f"   └─ 👤 Автор: {file.author}\n"
+            result += f"   Author: {file.author}\n"
         if file.created_date:
-            result += f"   └─ 📅 Создан: {format_date(file.created_date)}\n"
+            result += f"   Created: {format_date(file.created_date)}\n"
         if file.task_id:
-            result += f"   └─ 📋 Задача: #{file.task_id}\n"
+            result += f"   Task: #{file.task_id}\n"
         if file.project_id:
-            result += f"   └─ 🎯 Проект: #{file.project_id}\n"
+            result += f"   Project: #{file.project_id}\n"
         
         result += "\n"
     
@@ -156,18 +150,18 @@ def format_file_list(files: List[File]) -> str:
 def format_report_list(reports: List[Report]) -> str:
     """Format a list of reports for display."""
     if not reports:
-        return "Отчёты не найдены."
+        return "No reports found."
     
-    result = f"📊 Найдено отчётов: {len(reports)}\n\n"
+    result = f"Found {len(reports)} reports:\n\n"
     
     for i, report in enumerate(reports, 1):
-        name = report.name or "Без названия"
-        result += f"{i}. 📊 **{name}** (#{report.id})\n"
+        name = report.name or "No name"
+        result += f"{i}. Report #{report.id}: {name}\n"
         
         if report.description:
-            result += f"   └─ 📄 {report.description[:100]}{'...' if len(report.description) > 100 else ''}\n"
+            result += f"   Description: {report.description[:100]}{'...' if len(report.description) > 100 else ''}\n"
         if report.created_date:
-            result += f"   └─ 📅 Создан: {format_date(report.created_date)}\n"
+            result += f"   Created: {format_date(report.created_date)}\n"
         
         result += "\n"
     
@@ -177,20 +171,20 @@ def format_report_list(reports: List[Report]) -> str:
 def format_process_list(processes: List[Process]) -> str:
     """Format a list of processes for display."""
     if not processes:
-        return "Процессы не найдены."
+        return "No processes found."
     
-    result = f"⚙️ Найдено процессов: {len(processes)}\n\n"
+    result = f"Found {len(processes)} processes:\n\n"
     
     for i, process in enumerate(processes, 1):
-        name = process.name or "Без названия"
-        result += f"{i}. ⚙️ **{name}** (#{process.id})\n"
+        name = process.name or "No name"
+        result += f"{i}. Process #{process.id}: {name}\n"
         
         if process.status:
-            result += f"   └─ 🔄 Статус: {process.status}\n"
+            result += f"   Status: {process.status}\n"
         if process.description:
-            result += f"   └─ 📄 {process.description[:100]}{'...' if len(process.description) > 100 else ''}\n"
+            result += f"   Description: {process.description[:100]}{'...' if len(process.description) > 100 else ''}\n"
         if process.created_date:
-            result += f"   └─ 📅 Создан: {format_date(process.created_date)}\n"
+            result += f"   Created: {format_date(process.created_date)}\n"
         
         result += "\n"
     
@@ -200,97 +194,43 @@ def format_process_list(processes: List[Process]) -> str:
 def format_date(date_str: Optional[str]) -> str:
     """Format date string for display."""
     if not date_str:
-        return "Не указано"
+        return "N/A"
     
     try:
         # Try to parse ISO format
-        if "T" in date_str:
-            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            return dt.strftime("%d.%m.%Y %H:%M")
-        else:
-            # Assume date only
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-            return dt.strftime("%d.%m.%Y")
+        if 'T' in date_str:
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            return dt.strftime("%Y-%m-%d %H:%M")
+        
+        # Try to parse date only
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
     except (ValueError, TypeError):
         return date_str
 
 
-def format_project_list(projects: List[Project]) -> str:
-    """Format a list of projects for display."""
-    if not projects:
-        return "Проекты не найдены."
+def format_error(error: Exception, context: str = "") -> str:
+    """Format error message for display."""
+    error_type = type(error).__name__
+    error_msg = str(error)
     
-    result = f"🎯 Найдено проектов: {len(projects)}\n\n"
-    
-    for i, project in enumerate(projects, 1):
-        # Project object
-        project_id = project.id or "N/A"
-        name = project.name or "Без названия"
-        status = project.status or "Активный"
-        task_count = project.task_count or 0
-        owner = project.owner or "Не назначен"
-        
-        result += f"{i}. 🎯 **{name}** (#{project_id})\n"
-        result += f"   └─ Статус: {status}\n"
-        result += f"   └─ Задач: {task_count}\n"
-        result += f"   └─ Владелец: {owner}\n\n"
-    
-    return result.strip()
+    if context:
+        return f"Error in {context}: {error_type}: {error_msg}"
+    else:
+        return f"Error: {error_type}: {error_msg}"
 
 
-def format_analytics_report(report_data: Dict[str, Any]) -> str:
-    """Format analytics report for display."""
-    report_type = report_data.get("report_type", "Отчёт")
-    period = report_data.get("period", "")
-    data = report_data.get("data", [])
-    summary = report_data.get("summary", {})
-    
-    result = f"📊 **{report_type.upper()}** за период {period}\n\n"
-    
-    # Summary section
-    if summary:
-        result += "📈 **ИТОГО:**\n"
-        for key, value in summary.items():
-            result += f"   └─ {key}: {value}\n"
-        result += "\n"
-    
-    # Detailed data
-    if data:
-        result += "📋 **ДЕТАЛИ:**\n"
-        for i, item in enumerate(data, 1):
-            name = item.get("name", f"Элемент {i}")
-            value = item.get("value", "N/A")
-            result += f"{i}. {name}: {value}\n"
-    
-    return result.strip()
-
-
-def validate_priority(priority: str) -> str:
-    """Validate and normalize task priority."""
-    valid_priorities = ["LOW", "NORMAL", "HIGH", "CRITICAL"]
-    priority_upper = priority.upper()
-    
-    if priority_upper not in valid_priorities:
-        logger.warning(f"Invalid priority '{priority}', using NORMAL")
-        return "NORMAL"
-    
-    return priority_upper
-
-
-def validate_status(status: str) -> str:
-    """Validate and normalize task status."""
-    valid_statuses = ["NEW", "IN_WORK", "COMPLETED", "REJECTED", "PAUSED"]
-    status_upper = status.upper()
-    
-    if status_upper not in valid_statuses:
-        logger.warning(f"Invalid status '{status}', available: {valid_statuses}")
-        return status_upper  # Return as-is for custom statuses
-    
-    return status_upper
+def log_api_call(method: str, endpoint: str, response_time: float = None) -> None:
+    """Log API call for debugging."""
+    if config.debug:
+        if response_time:
+            logger.debug(f"API call: {method} {endpoint} (took {response_time:.3f}s)")
+        else:
+            logger.debug(f"API call: {method} {endpoint}")
 
 
 def safe_get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
-    """Safely get nested dictionary value."""
+    """Safely get nested values from a dictionary."""
     current: Any = data
     for key in keys:
         if isinstance(current, dict) and key in current:
@@ -298,38 +238,3 @@ def safe_get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
         else:
             return default
     return current
-
-
-def truncate_text(text: str, max_length: int = 100) -> str:
-    """Truncate text to specified length."""
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - 3] + "..."
-
-
-def format_error(error: Exception, context: str = "") -> str:
-    """Format error message for user display."""
-    error_msg = str(error)
-    
-    if "401" in error_msg or "unauthorized" in error_msg.lower():
-        return "❌ Ошибка авторизации. Проверьте API ключи Planfix."
-    elif "403" in error_msg or "forbidden" in error_msg.lower():
-        return "❌ Доступ запрещён. Недостаточно прав для выполнения операции."
-    elif "404" in error_msg or "not found" in error_msg.lower():
-        return "❌ Объект не найден. Проверьте ID и попробуйте снова."
-    elif "timeout" in error_msg.lower():
-        return "❌ Превышено время ожидания. Попробуйте позже."
-    elif "connection" in error_msg.lower():
-        return "❌ Ошибка соединения с Planfix. Проверьте интернет-подключение."
-    
-    # Generic error with context
-    if context:
-        return f"❌ Ошибка при {context}: {error_msg}"
-    
-    return f"❌ Произошла ошибка: {error_msg}"
-
-
-def log_api_call(method: str, endpoint: str, status_code: Optional[int] = None) -> None:
-    """Log API call for debugging."""
-    if config.debug:
-        logger.debug(f"API Call: {method} {endpoint} -> {status_code or 'Unknown'}")
