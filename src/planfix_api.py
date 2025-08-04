@@ -361,5 +361,3 @@ class PlanfixAPI:
             return False
 
 
-# Global API instance
-api = PlanfixAPI()
