@@ -205,7 +205,7 @@ async def search_tasks(
         )
         
         # Format and return results
-                    result = json.dumps([task.model_dump() for task in tasks], indent=2, ensure_ascii=False)
+        result = json.dumps([task.model_dump() for task in tasks], indent=2, ensure_ascii=False)
         
         if len(tasks) >= validated_request.limit:
             result += f"\n\n💡 Показаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
