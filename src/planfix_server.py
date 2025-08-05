@@ -9,11 +9,11 @@ Planfix MCP Server
 Версия: 1.0.0
 """
 
+import argparse
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-import sys
 from typing import Any, AsyncIterator, Dict, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -105,18 +105,18 @@ api = None
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     """Управление жизненным циклом сервера."""
-    logger.info("🚀 Запуск Planfix MCP Server...")
+    logger.info("Запуск Planfix MCP Server...")
     global api
     api = PlanfixAPI()
     # Test API connection on startup
     try:
         connection_ok = await api.test_connection()
         if not connection_ok:
-            logger.error("❌ Не удалось подключиться к Planfix API")
+            logger.error("Не удалось подключиться к Planfix API")
             raise RuntimeError("Проверьте настройки API")
-        logger.info("✅ Соединение с Planfix API установлено")
+        logger.info("Соединение с Planfix API установлено")
     except Exception as e:
-        logger.error(f"❌ Ошибка инициализации: {e}")
+        logger.error(f"Ошибка инициализации: {e}")
         raise
     
     # Print available tools
@@ -124,14 +124,14 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         tools_response = await server.list_tools()
         tools = tools_response
         if tools and len(tools) > 0:
-            logger.info(f"🔧 Доступные инструменты MCP ({len(tools)} шт.):")
+            logger.info(f"Доступные инструменты MCP ({len(tools)} шт.):")
             for tool in tools:
                 tool_name = getattr(tool, 'name', 'unknown')
-                logger.info(f"   └─ {tool_name}")
+                logger.info(f"   - {tool_name}")
         else:
-            logger.warning("⚠️ Нет зарегистрированных инструментов")
+            logger.warning("Нет зарегистрированных инструментов")
     except Exception as e:
-        logger.error(f"❌ Ошибка при получении списка инструментов: {e}")
+        logger.error(f"Ошибка при получении списка инструментов: {e}")
     
     # Provide context to handlers
     context = {
@@ -214,7 +214,7 @@ async def search_tasks(
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"Ошибка валидации: {str(e)}"
         ctx.error(f"Ошибка валидации поиска задач: {e}")
         return error_msg
     except PlanfixError as e:
@@ -268,7 +268,7 @@ async def search_contacts(
         logger.info(f"Поиск контактов: query='{validated_request.query}', is_company={validated_request.is_company}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         contacts = await api.search_contacts(
             query=validated_request.query, 
@@ -281,7 +281,7 @@ async def search_contacts(
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"Ошибка валидации: {str(e)}"
         logger.error(f"Ошибка валидации поиска контактов: {e}")
         return error_msg
     except Exception as e:
@@ -310,7 +310,7 @@ async def get_contact_details(contact_id: int) -> str:
         logger.info(f"Получение деталей контакта: {validated_request.contact_id}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         contact = await api.get_contact_details(validated_request.contact_id)
         
@@ -341,7 +341,7 @@ async def get_contact_details(contact_id: int) -> str:
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения контакта: {e}")
         return error_msg
     except Exception as e:
@@ -370,7 +370,7 @@ async def list_employees(limit: int = 20) -> str:
         logger.info(f"Получение списка сотрудников: limit={validated_request.limit}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         employees = await api.list_employees(limit=validated_request.limit)
         result = json.dumps([employee.model_dump() for employee in employees], indent=2, ensure_ascii=False)
@@ -379,7 +379,7 @@ async def list_employees(limit: int = 20) -> str:
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения сотрудников: {e}")
         return error_msg
     except Exception as e:
@@ -418,7 +418,7 @@ async def list_files(
         logger.info(f"Получение списка файлов: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         files = await api.list_files(
             limit=validated_request.limit, 
@@ -431,7 +431,7 @@ async def list_files(
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения файлов: {e}")
         return error_msg
     except Exception as e:
@@ -470,7 +470,7 @@ async def list_comments(
         logger.info(f"Получение списка комментариев: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         comments = await api.list_comments(
             limit=validated_request.limit, 
@@ -483,7 +483,7 @@ async def list_comments(
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения комментариев: {e}")
         return error_msg
     except Exception as e:
@@ -512,7 +512,7 @@ async def list_reports(limit: int = 20) -> str:
         logger.info(f"Получение списка отчётов: limit={validated_request.limit}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         reports = await api.list_reports(limit=validated_request.limit)
         result = json.dumps([report.model_dump() for report in reports], indent=2, ensure_ascii=False)
@@ -521,7 +521,7 @@ async def list_reports(limit: int = 20) -> str:
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения отчётов: {e}")
         return error_msg
     except Exception as e:
@@ -550,7 +550,7 @@ async def list_processes(limit: int = 20) -> str:
         logger.info(f"Получение списка процессов: limit={validated_request.limit}")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
             
         processes = await api.list_processes(limit=validated_request.limit)
         result = json.dumps([process.model_dump() for process in processes], indent=2, ensure_ascii=False)
@@ -559,7 +559,7 @@ async def list_processes(limit: int = 20) -> str:
         return result
         
     except PlanfixValidationError as e:
-        error_msg = f"❌ {str(e)}"
+        error_msg = f"{str(e)}"
         logger.error(f"Ошибка валидации получения процессов: {e}")
         return error_msg
     except Exception as e:
@@ -607,7 +607,7 @@ async def get_dashboard_summary() -> str:
         
     except Exception as e:
         logger.error(f"Error getting dashboard: {e}")
-        return f"❌ Ошибка получения сводки: {format_error(e)}"
+        return f"Ошибка получения сводки: {format_error(e)}"
 
 @mcp.resource("projects://list")
 async def get_projects_list() -> str:
@@ -634,7 +634,7 @@ async def get_projects_list() -> str:
         
     except Exception as e:
         logger.error(f"Error getting projects: {e}")
-        return f"❌ Ошибка получения проектов: {format_error(e)}"
+        return f"Ошибка получения проектов: {format_error(e)}"
 
 @mcp.resource("task://{task_id}")
 async def get_task_details(task_id: str) -> str:
@@ -646,7 +646,7 @@ async def get_task_details(task_id: str) -> str:
             if task_id_int < 1:
                 raise ValueError("Task ID must be positive")
         except ValueError:
-            return f"❌ Неверный ID задачи: {task_id}"
+            return f"Неверный ID задачи: {task_id}"
         
         task = await api.get_task(task_id_int)
         
@@ -686,7 +686,7 @@ async def get_task_details(task_id: str) -> str:
         
     except Exception as e:
         logger.error(f"Error getting task {task_id}: {e}")
-        return f"❌ Ошибка получения задачи: {format_error(e)}"
+        return f"Ошибка получения задачи: {format_error(e)}"
 
 @mcp.resource("contacts://recent")
 async def get_recent_contacts() -> str:
@@ -716,7 +716,7 @@ async def get_recent_contacts() -> str:
         
     except Exception as e:
         logger.error(f"Error getting contacts: {e}")
-        return f"❌ Ошибка получения контактов: {format_error(e)}"
+        return f"Ошибка получения контактов: {format_error(e)}"
 
 # ============================================================================
 # ПРОМПТЫ (PROMPTS) - Шаблоны для LLM
@@ -734,20 +734,20 @@ def analyze_project_status(project_name: str) -> str:
 4. Определи критический путь проекта
 5. Проанализируй качество выполнения задач
 
-📊 **МЕТРИКИ ДЛЯ ОЦЕНКИ:**
+МЕТРИКИ ДЛЯ ОЦЕНКИ::
 • Процент выполненных задач в срок
 • Среднее время выполнения задач
 • Количество просроченных задач
 • Распределение нагрузки по сотрудникам
 • Соответствие бюджету (если доступно)
 
-⚠️ **ОСОБОЕ ВНИМАНИЕ:**
+ОСОБОЕ ВНИМАНИЕ:
 • Просроченные задачи и их влияние на проект
 • Перегруженные сотрудники
 • Задачи с высоким приоритетом
 • Зависимости между задачами
 
-📋 **РЕЗУЛЬТАТ:**
+РЕЗУЛЬТАТ::
 Подготовь краткий отчёт для руководства с:
 • Текущим статусом проекта
 • Выявленными проблемами
@@ -761,7 +761,7 @@ def create_weekly_report(week_start: str) -> str:
     
     return f"""Создай еженедельный отчёт по работе команды за период {week_start} - {week_end}:
 
-📊 **ПОКАЗАТЕЛИ НЕДЕЛИ:**
+ПОКАЗАТЕЛИ НЕДЕЛИ::
 • Количество завершённых задач
 • Количество созданных задач
 • Среднее время выполнения задач
@@ -769,25 +769,25 @@ def create_weekly_report(week_start: str) -> str:
 • Загрузка сотрудников по проектам
 • Общее затраченное время
 
-🎯 **ДОСТИЖЕНИЯ:**
+ДОСТИЖЕНИЯ::
 • Основные результаты недели
 • Завершённые проекты/этапы
 • Решённые проблемы
 • Превышенные ожидания
 
-⚠️ **ПРОБЛЕМЫ И РИСКИ:**
+ПРОБЛЕМЫ И РИСКИ:
 • Просроченные задачи и их причины
 • Перегруженные сотрудники  
 • Проблемные проекты
 • Технические сложности
 • Ресурсные ограничения
 
-📈 **ТРЕНДЫ И АНАЛИЗ:**
+ТРЕНДЫ И АНАЛИЗ::
 • Сравнение с предыдущей неделей
 • Динамика производительности
 • Качественные изменения в работе
 
-📋 **ПЛАНЫ НА СЛЕДУЮЩУЮ НЕДЕЛЮ:**
+ПЛАНЫ НА СЛЕДУЮЩУЮ НЕДЕЛЮ::
 • Приоритетные задачи и проекты
 • Распределение нагрузки
 • Необходимые ресурсы
@@ -799,37 +799,37 @@ def plan_sprint(sprint_duration: int = 14) -> str:
     """Шаблон для планирования спринта."""
     return f"""Спланируй спринт продолжительностью {sprint_duration} дней:
 
-🎯 **ЦЕЛИ СПРИНТА:**
+ЦЕЛИ СПРИНТА::
 1. Определи основные цели и результаты спринта
 2. Установи критерии успеха
 3. Выяви ключевые метрики для отслеживания
 
-📋 **ПЛАНИРОВАНИЕ ЗАДАЧ:**
+ПЛАНИРОВАНИЕ ЗАДАЧ::
 • Проанализируй беклог задач
 • Оцени сложность и приоритет каждой задачи
 • Распредели задачи между участниками команды
 • Учти доступность и загрузку сотрудников
 • Определи зависимости между задачами
 
-⏰ **ВРЕМЕННОЕ ПЛАНИРОВАНИЕ:**
+ВРЕМЕННОЕ ПЛАНИРОВАНИЕ::
 • Разбей спринт на итерации (если нужно)
 • Запланируй ключевые milestone'ы
 • Оставь буферное время для непредвиденных задач
 • Учти праздники и отпуска команды
 
-🔄 **ПРОЦЕССЫ И РИТУАЛЫ:**
+ПРОЦЕССЫ И РИТУАЛЫ::
 • Запланируй регулярные синки команды
 • Определи процедуры отчётности
 • Настрой автоматические уведомления
 • Подготовь шаблоны для статус-репортов
 
-📊 **МОНИТОРИНГ И КОНТРОЛЬ:**
+МОНИТОРИНГ И КОНТРОЛЬ::
 • Определи KPI для отслеживания прогресса
 • Настрой дашборды и отчёты
 • Запланируй контрольные точки
 • Подготовь план корректирующих действий
 
-🎯 **ИТОГОВЫЙ ПЛАН:**
+ИТОГОВЫЙ ПЛАН::
 Создай структурированный план спринта с:
 - Списком задач с исполнителями и сроками
 - График основных milestone'ов
@@ -842,18 +842,64 @@ def plan_sprint(sprint_duration: int = 14) -> str:
 
 def main():
     """Точка входа для запуска сервера."""
-    print(sys.argv)
-    if len(sys.argv) > 1:
-        config.planfix_account = sys.argv[1]
-    if len(sys.argv) > 2:
-        config.planfix_api_key = sys.argv[2]
+    parser = argparse.ArgumentParser(
+        description="Planfix MCP Server - интеграция Planfix с Model Context Protocol",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Примеры использования:
+  %(prog)s --account mycompany --api-key abc123
+  %(prog)s --debug
+  %(prog)s --help
+
+Переменные окружения:
+  PLANFIX_ACCOUNT     Название аккаунта Planfix
+  PLANFIX_API_KEY     API ключ Planfix
+  DEBUG               Включить отладочные логи
+        """
+    )
+    
+    parser.add_argument(
+        "--account",
+        type=str,
+        help="Название аккаунта Planfix (можно также задать через PLANFIX_ACCOUNT)"
+    )
+    
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        help="API ключ Planfix (можно также задать через PLANFIX_API_KEY)"
+    )
+    
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Включить отладочные логи"
+    )
+    
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="Planfix MCP Server 1.0.1"
+    )
+    
+    args = parser.parse_args()
+    
+    # Применяем аргументы командной строки к конфигурации
+    if args.account:
+        config.planfix_account = args.account
+    if args.api_key:
+        config.planfix_api_key = args.api_key
+    if args.debug:
+        config.debug = True
+        logging.getLogger().setLevel(logging.DEBUG)
+    
     try:
-        logger.info("🚀 Запуск Planfix MCP Server...")
+        logger.info("Запуск Planfix MCP Server...")
         mcp.run(transport="stdio")
     except KeyboardInterrupt:
-        logger.info("👋 Сервер остановлен пользователем")
+        logger.info("Сервер остановлен пользователем")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
+        logger.error(f"Критическая ошибка: {e}")
         raise
 
 if __name__ == "__main__":

@@ -17,8 +17,6 @@ class PlanfixConfig(BaseModel):
     planfix_account: str | None = None
     planfix_api_key: str | None = None
     
-    # Optional configuration
-    planfix_base_url: Optional[str] = 'https://megamindru.planfix.ru'
     request_timeout: int = 30
     debug: bool = False
 

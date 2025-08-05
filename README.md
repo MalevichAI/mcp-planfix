@@ -45,10 +45,9 @@ pip install -r requirements.txt
 
 ### 2. Настройка API ключей
 
-Получите API ключи в вашем аккаунте Planfix:
+Получите API ключ в вашем аккаунте Planfix:
 1. Перейдите в Настройки → API
 2. Создайте новый API ключ
-3. Получите User Key
 
 Создайте файл `.env`:
 
@@ -61,31 +60,27 @@ cp .env.example .env
 ```env
 PLANFIX_ACCOUNT=your-account-name
 PLANFIX_API_KEY=your-api-key
-PLANFIX_USER_KEY=your-user-key
 ```
 
 ### 3. Тестирование
 
 ```bash
-# Запуск в режиме разработки
-в
+# Запуск с аргументами командной строки
+python -m src.planfix_server --account your-account --api-key your-api-key
 
-# Или прямой запуск
-python src/planfix_server.py
-```
+# Запуск в режиме отладки
+python -m src.planfix_server --debug
 
-### 4. Установка в Claude Desktop
+# Просмотр справки
+python -m src.planfix_server --help
 
-```bash
-# Автоматическая установка
-uv run mcp install src/planfix_server.py --name "Planfix Integration" -f .env
-
-# Или ручная настройка в claude_desktop_config.json
+# Запуск с переменными окружения (из .env файла)
+python -m src.planfix_server
 ```
 
 ## Использование
 
-После установки в Claude Desktop вы сможете:
+После установки вы сможете:
 
 ### Создание задач
 ```
@@ -109,35 +104,39 @@ uv run mcp install src/planfix_server.py --name "Planfix Integration" -f .env
 
 ## Конфигурация
 
+### Аргументы командной строки
+
+Сервер поддерживает следующие аргументы командной строки:
+
+| Аргумент | Описание | Пример |
+|----------|----------|--------|
+| `--account` | Название аккаунта Planfix | `--account mycompany` |
+| `--api-key` | API ключ Planfix | `--api-key abc123xyz` |
+| `--debug` | Включить отладочные логи | `--debug` |
+| `--help` | Показать справку | `--help` |
+| `--version` | Показать версию | `--version` |
+
+**Примеры использования:**
+```bash
+# Полная конфигурация через аргументы
+uv run python -m src.planfix_server --account mycompany --api-key abc123
+
+# Запуск в режиме отладки
+uv run python -m src.planfix_server --debug
+
+# Комбинирование с переменными окружения
+export PLANFIX_ACCOUNT=mycompany
+uv run python -m src.planfix_server --api-key abc123
+```
+
 ### Переменные окружения
 
 | Переменная | Описание | Обязательная |
 |------------|----------|--------------|
 | `PLANFIX_ACCOUNT` | Название вашего аккаунта Planfix | ✅ |
 | `PLANFIX_API_KEY` | API ключ | ✅ |
-| `PLANFIX_USER_KEY` | Пользовательский ключ | ✅ |
 | `PLANFIX_BASE_URL` | Базовый URL (по умолчанию: https://{account}.planfix.ru) | ❌ |
 | `DEBUG` | Включить отладочные логи | ❌ |
-
-### Настройка в Claude Desktop
-
-Добавьте в `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "planfix": {
-      "command": "python",
-      "args": ["/path/to/planfix-mcp-server/src/planfix_server.py"],
-      "env": {
-        "PLANFIX_ACCOUNT": "your-account",
-        "PLANFIX_API_KEY": "your-api-key",
-        "PLANFIX_USER_KEY": "your-user-key"
-      }
-    }
-  }
-}
-```
 
 ### Настройка в Cursor
 
@@ -149,8 +148,40 @@ Cursor поддерживает MCP серверы начиная с верси�
 
 3. **Добавьте конфигурацию сервера**:
 
+С использованием uvx:
 ```json
+{
+  "mcp.servers": {
+    "planfix": {
+      "command": "uvx",
+      "args": [
+        "--from", "git+https://github.com/your-repo/planfix-mcp@main",
+        "planfix-server",
+        "--account", "your-account-name",
+        "--api-key", "your-api-key"
+      ]
+    }
+  }
+}
+```
 
+Или с переменными окружения:
+```json
+{
+  "mcp.servers": {
+    "planfix": {
+      "command": "uvx",
+      "args": [
+        "--from", "git+https://github.com/your-repo/planfix-mcp@main",
+        "planfix-server"
+      ],
+      "env": {
+        "PLANFIX_ACCOUNT": "your-account-name",
+        "PLANFIX_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
 ```
 
 4. **Альтернативный способ через .cursorrules**:
@@ -173,8 +204,8 @@ Available tools:
 - list_processes: Get business processes
 
 Server configuration:
-- Command: python /path/to/planfix-mcp/src/planfix_server.py
-- Requires PLANFIX_ACCOUNT, PLANFIX_API_KEY, PLANFIX_USER_KEY environment variables
+- Command: uvx --from git+https://github.com/your-repo/planfix-mcp@main planfix-server
+- Requires PLANFIX_ACCOUNT, PLANFIX_API_KEY environment variables
 
 Use these tools to help with project management, task tracking, and CRM operations.
 ```
@@ -295,6 +326,15 @@ MIT License - см. [LICENSE](LICENSE) файл.
 - MCP Documentation: https://modelcontextprotocol.io/
 
 ## Changelog
+
+### v1.0.1 (2024-12-23)
+- Улучшена обработка аргументов командной строки с использованием argparse
+- Добавлены опции --help, --version, --debug
+- Убраны эмодзи и markdown форматирование из вывода инструментов
+- Упрощен возврат данных через model_dump() для лучшей интеграции
+- Удалена зависимость от PLANFIX_USER_KEY (только PLANFIX_ACCOUNT и PLANFIX_API_KEY)
+- Обновлена конфигурация для Cursor с использованием uvx и git+repo@main
+- Удалена секция Claude Desktop из документации
 
 ### v1.0.0 (2024-12-23)
 - Первый релиз
