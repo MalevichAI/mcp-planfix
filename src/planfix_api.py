@@ -1,12 +1,23 @@
 """Planfix API client."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, Type, TypeVar
+from pydantic import BaseModel, ValidationError
 
 import httpx
 from .config import config
-from .models import Task, Project, Contact, Employee, Comment, File, Report, Process
-from .utils import log_api_call, format_error
+from .models import (
+    # Response models
+    TaskResponse, ContactResponse, ProjectResponse, CommentResponse, 
+    FileResponse, UserResponse, ApiResponseError, Report,
+    # Request models  
+    TaskCreateRequest, TaskUpdateRequest, ContactRequest, CommentCreateRequest,
+    # Legacy models for backwards compatibility
+    Contact, Process
+)
+from .utils import log_api_call
+
+T = TypeVar('T', bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +37,13 @@ class PlanfixNotFoundError(PlanfixError):
     pass
 
 
-# Models imported from models.py
+class PlanfixValidationError(PlanfixError):
+    """Response validation error."""
+    pass
 
 
 class PlanfixAPI:
-    """Planfix API client."""
+    """Planfix API client with comprehensive model support."""
     
     def __init__(self):
         """Initialize API client with configuration."""
@@ -76,7 +89,14 @@ class PlanfixAPI:
                     error_data = response.text
                     try:
                         error_json = response.json()
-                        error_data = error_json.get("message", error_data)
+                        if "result" in error_json and error_json["result"] == "fail":
+                            # Try to parse as ApiResponseError
+                            try:
+                                error_obj = ApiResponseError(**error_json)
+                                raise PlanfixError(f"API Error {error_obj.code}: {error_obj.error}")
+                            except ValidationError:
+                                pass
+                        error_data = error_json.get("message", error_json.get("error", error_data))
                     except:
                         pass
                     raise PlanfixError(f"HTTP {response.status_code}: {error_data}")
@@ -91,375 +111,216 @@ class PlanfixAPI:
             logger.error(f"API request failed: {e}")
             raise PlanfixError(f"Ошибка API запроса: {e}")
     
-    # Task operations
-    async def create_task(
-        self,
-        name: str,
-        description: str = "",
-        project_id: Optional[int] = None,
-        assignee_id: Optional[int] = None,
-        priority: str = "NORMAL",
-        deadline: Optional[str] = None
-    ) -> Task:
-        """Create a new task."""
-        data = {
-            "name": name,
-            "description": description,
-            "priority": priority
-        }
-        
-        if project_id:
-            data["project"] = {"id": project_id}
-        if assignee_id:
-            data["assignee"] = {"id": assignee_id}
-        if deadline:
-            data["endDatePlan"] = deadline
-        
-        result = await self._request("POST", "task", data)
-        
-        task_data = result.get("task", result)
-        return Task(
-            id=task_data["id"],
-            name=name,
-            description=description,
-            priority=priority,
-            deadline=deadline
-        )
+    def _validate_response(self, data: Dict[str, Any], model_class: Type[T], data_key: Optional[str] = None) -> T:
+        """Validate API response against Pydantic model."""
+        try:
+            if data_key:
+                if data_key not in data:
+                    raise PlanfixValidationError(f"Expected key '{data_key}' not found in response")
+                return model_class(**data[data_key])
+            else:
+                return model_class(**data)
+        except ValidationError as e:
+            logger.error(f"Response validation failed: {e}")
+            raise PlanfixValidationError(f"Response validation failed: {e}")
     
-    async def get_task(self, task_id: int) -> Task:
-        """Get task by ID."""
-        result = await self._request("POST", f"task/{task_id}")
+    def _validate_list_response(self, data: Dict[str, Any], model_class: Type[T], data_key: str) -> List[T]:
+        """Validate API list response against Pydantic model."""
+        try:
+            if data_key not in data:
+                raise PlanfixValidationError(f"Expected key '{data_key}' not found in response")
+            
+            items = data[data_key]
+            if not isinstance(items, list):
+                raise PlanfixValidationError(f"Expected '{data_key}' to be a list")
+            
+            return [model_class(**item) for item in items]
+        except ValidationError as e:
+            logger.error(f"List response validation failed: {e}")
+            raise PlanfixValidationError(f"List response validation failed: {e}")
+    
+    # Task operations
+    async def get_task(self, task_id: int, fields: Optional[str] = None) -> TaskResponse:
+        """Get task by ID using proper API endpoint."""
+        params = {}
+        if fields:
+            params["fields"] = fields
+        else:
+            params["fields"] = "id,name,description,priority,status,assigner,assignees,project,startDateTime,endDateTime"
         
-        task_data = result.get("task", result)
-        return Task(
-            id=task_data["id"],
-            name=task_data.get("name", ""),
-            description=task_data.get("description", ""),
-            status=task_data.get("status", {}).get("name"),
-            assignee=task_data.get("assignee", {}).get("name"),
-            project=task_data.get("project", {}).get("name"),
-            priority=task_data.get("priority"),
-            deadline=task_data.get("endDatePlan")
-        )
+        result = await self._request("GET", f"task/{task_id}", params=params)
+        return self._validate_response(result, TaskResponse, "task")
     
     async def search_tasks(
         self,
         query: str = "",
         project_id: Optional[int] = None,
         assignee_id: Optional[int] = None,
-        status: str = "active"
-    ) -> List[Task]:
-        """Search tasks with filters."""
-        params = {"fields": "id,name,status,assignee,project,endDatePlan,priority"}
-        
-        if query:
-            params["name"] = query
-        if project_id:
-            params["project"] = project_id
-        if assignee_id:
-            params["assignee"] = assignee_id
-        if status != "all":
-            params["status"] = status
-        
-        result = await self._request("POST", "task/list", params)
-        
-        tasks = []
-        task_list = result.get("tasks", result.get("data", []))
-        for task_data in task_list:
-            tasks.append(Task(
-                id=task_data["id"],
-                name=task_data.get("name", ""),
-                status=task_data.get("status", {}).get("name"),
-                assignee=task_data.get("assignee", {}).get("name"),
-                project=task_data.get("project", {}).get("name"),
-                priority=task_data.get("priority"),
-                deadline=task_data.get("endDatePlan")
-            ))
-        
-        return tasks
-    
-    async def update_task_status(
-        self, 
-        task_id: int, 
-        status: str, 
-        comment: str = ""
-    ) -> bool:
-        """Update task status."""
-        data = {"status": {"key": status}}
-        if comment:
-            data["comment"] = comment
-        
-        await self._request("POST", f"task/{task_id}", data)
-        return True
-    
-    async def add_task_comment(self, task_id: int, comment: str) -> bool:
-        """Add comment to task."""
-        data = {"comment": comment}
-        await self._request("POST", f"task/{task_id}/comment", data)
-        return True
-    
-    # Project operations
-    async def create_project(
-        self,
-        name: str,
-        description: str = "",
-        owner_id: Optional[int] = None,
-        client_id: Optional[int] = None
-    ) -> Project:
-        """Create a new project."""
+        status: str = "active",
+        limit: int = 20
+    ) -> List[TaskResponse]:
+        """Search tasks with filters using proper API endpoint."""
         data = {
-            "name": name,
-            "description": description
+            "offset": 0,
+            "pageSize": limit,
+            "fields": "id,name,description,priority,status,assigner,assignees,project,startDateTime,endDateTime"
         }
         
-        if owner_id:
-            data["owner"] = {"id": owner_id}
-        if client_id:
-            data["client"] = {"id": client_id}
+        # Add filters based on parameters
+        filters = []
+        if project_id:
+            filters.append({
+                "type": 5,  # Project filter type
+                "operator": "equal",
+                "value": project_id
+            })
+        if assignee_id:
+            filters.append({
+                "type": 2,  # Assignee filter type
+                "operator": "equal", 
+                "value": f"user:{assignee_id}"
+            })
+        if status == "active":
+            # Add active status filter if needed
+            pass
         
-        result = await self._request("POST", "project", data)
+        if filters:
+            data["filters"] = filters
         
-        project_data = result.get("project", result)
-        return Project(
-            id=project_data["id"],
-            name=name,
-            description=description
-        )
+        result = await self._request("POST", "task/list", data=data)
+        return self._validate_list_response(result, TaskResponse, "tasks")
     
-    async def get_projects(self) -> List[Project]:
-        """Get list of projects."""
-        result = await self._request("POST", "project/list")
-        
-        projects = []
-        project_list = result.get("projects", result.get("data", []))
-        for project_data in project_list:
-            projects.append(Project(
-                id=project_data["id"],
-                name=project_data.get("name", ""),
-                description=project_data.get("description", ""),
-                status=project_data.get("status", {}).get("name"),
-                owner=project_data.get("owner", {}).get("name"),
-                task_count=project_data.get("taskCount", 0)
-            ))
-        
-        return projects
+    async def create_task(self, task_data: TaskCreateRequest) -> int:
+        """Create a new task."""
+        result = await self._request("POST", "task/", data=task_data.model_dump(exclude_none=True))
+        return result.get("id", 0)
+    
+    async def update_task(self, task_id: int, task_data: TaskUpdateRequest, silent: bool = False) -> bool:
+        """Update a task."""
+        params = {"silent": silent} if silent else {}
+        await self._request("POST", f"task/{task_id}", data=task_data.model_dump(exclude_none=True), params=params)
+        return True
     
     # Contact operations
-    async def add_contact(
-        self,
-        name: str,
-        email: str = "",
-        phone: str = "",
-        company: str = "",
-        position: str = ""
-    ) -> Contact:
-        """Add a new contact."""
+    async def get_contact(self, contact_id: Union[int, str], fields: Optional[str] = None) -> ContactResponse:
+        """Get contact by ID using proper API endpoint."""
+        params = {}
+        if fields:
+            params["fields"] = fields
+        else:
+            params["fields"] = "id,name,midname,lastname,email,phones,position,description,isCompany,createdDate"
+        
+        result = await self._request("GET", f"contact/{contact_id}", params=params)
+        return self._validate_response(result, ContactResponse, "contact")
+    
+    async def search_contacts(self, query: str = "", limit: int = 20, is_company: bool = False) -> List[ContactResponse]:
+        """Search contacts using proper API endpoint."""
         data = {
-            "name": name,
-            "email": email,
-            "phone": phone,
-            "company": company,
-            "position": position
+            "offset": 0,
+            "pageSize": limit,
+            "isCompany": is_company,
+            "fields": "id,name,midname,lastname,email,phones,position,description,isCompany,createdDate"
         }
         
-        result = await self._request("POST", "contact", data)
-        
-        contact_data = result.get("contact", result)
-        return Contact(
-            id=contact_data["id"],
-            name=name,
-            email=email,
-            phone=phone,
-            company=company,
-            position=position
-        )
-    
-    async def get_contacts(self, limit: int = 20) -> List[Contact]:
-        """Get recent contacts."""
-        params = {"limit": limit, "orderBy": "dateCreate", "order": "desc"}
-        result = await self._request("POST", "contact/list", params)
-        
-        contacts = []
-        contact_list = result.get("contacts", result.get("data", []))
-        for contact_data in contact_list:
-            contacts.append(Contact(
-                id=contact_data["id"],
-                name=contact_data.get("name", ""),
-                email=contact_data.get("email", ""),
-                phone=contact_data.get("phone", ""),
-                company=contact_data.get("company", ""),
-                position=contact_data.get("position", "")
-            ))
-        
-        return contacts
-    
-    # Analytics operations
-    async def get_analytics_report(
-        self,
-        report_type: str,
-        date_from: str,
-        date_to: str,
-        group_by: str = "user"
-    ) -> Dict[str, Any]:
-        """Get analytics report."""
-        params = {
-            "type": report_type,
-            "dateFrom": date_from,
-            "dateTo": date_to,
-            "groupBy": group_by
-        }
-        
-        result = await self._request("POST", "analytics/report", params)
-        
-        return {
-            "report_type": report_type,
-            "period": f"{date_from} - {date_to}",
-            "group_by": group_by,
-            "data": result.get("data", []),
-            "summary": result.get("summary", {})
-        }
-    
-    # Enhanced contact operations
-    async def get_contact(self, contact_id: int) -> Contact:
-        """Get contact by ID."""
-        result = await self._request("GET", f"contact/{contact_id}")
-        
-        contact_data = result.get("contact", result)
-        return Contact(
-            id=contact_data["id"],
-            name=contact_data.get("name", ""),
-            midname=contact_data.get("midname", ""),
-            lastname=contact_data.get("lastname", ""),
-            email=contact_data.get("email", ""),
-            phone=contact_data.get("phones", [{}])[0].get("number", "") if contact_data.get("phones") else "",
-            company=contact_data.get("company", ""),
-            position=contact_data.get("position", ""),
-            description=contact_data.get("description", ""),
-            is_company=contact_data.get("isCompany", False),
-            created_date=contact_data.get("createdDate", {}).get("datetime", "")
-        )
-    
-    async def search_contacts(self, query: str = "", limit: int = 20) -> List[Contact]:
-        """Search contacts by name or other criteria."""
-        params = {"limit": limit}
+        # Add text search filter if query provided
         if query:
-            params["query"] = query
-            
-        result = await self._request("POST", "contact/list", params)
+            data["filters"] = [{
+                "type": 4001,  # Name search filter type
+                "operator": "equal",
+                "value": query
+            }]
         
-        contacts = []
-        contact_list = result.get("contacts", result.get("data", []))
-        for contact_data in contact_list:
-            contacts.append(Contact(
-                id=contact_data["id"],
-                name=contact_data.get("name", ""),
-                midname=contact_data.get("midname", ""),
-                lastname=contact_data.get("lastname", ""),
-                email=contact_data.get("email", ""),
-                phone=contact_data.get("phones", [{}])[0].get("number", "") if contact_data.get("phones") else "",
-                company=contact_data.get("company", ""),
-                position=contact_data.get("position", ""),
-                description=contact_data.get("description", ""),
-                is_company=contact_data.get("isCompany", False),
-                created_date=contact_data.get("createdDate", {}).get("datetime", "")
-            ))
+        result = await self._request("POST", "contact/list", data=data)
+        return self._validate_list_response(result, ContactResponse, "contacts")
+    
+    async def create_contact(self, contact_data: ContactRequest) -> int:
+        """Create a new contact."""
+        result = await self._request("POST", "contact/", data=contact_data.model_dump(exclude_none=True))
+        return result.get("id")
+    
+    async def update_contact(self, contact_id: Union[int, str], contact_data: ContactRequest, silent: bool = False) -> bool:
+        """Update a contact."""
+        params = {"silent": silent} if silent else {}
+        await self._request("POST", f"contact/{contact_id}", data=contact_data.model_dump(exclude_none=True), params=params)
+        return True
+    
+    # Project operations  
+    async def get_projects(self, limit: int = 20) -> List[ProjectResponse]:
+        """Get list of projects."""
+        data = {
+            "offset": 0,
+            "pageSize": limit,
+            "fields": "id,name,description,owner,client,startDate,endDate,isDeleted"
+        }
         
-        return contacts
+        result = await self._request("POST", "project/list", data=data)
+        return self._validate_list_response(result, ProjectResponse, "projects")
     
     # Employee operations
-    async def list_employees(self, limit: int = 20) -> List[Employee]:
-        """List employees."""
-        result = await self._request("POST", "user/list", {"limit": limit})
+    async def list_employees(self, limit: int = 20) -> List[UserResponse]:
+        """List employees/users."""
+        data = {
+            "offset": 0,
+            "pageSize": limit,
+            "fields": "id,name,email,position"
+        }
         
-        employees = []
-        employee_list = result.get("users", result.get("data", []))
-        for employee_data in employee_list:
-            employees.append(Employee(
-                id=employee_data["id"],
-                name=employee_data.get("name", ""),
-                email=employee_data.get("email", ""),
-                position=employee_data.get("position", ""),
-                status=employee_data.get("status", {}).get("name", ""),
-                last_activity=employee_data.get("lastActivity", {}).get("datetime", "")
-            ))
-        
-        return employees
+        result = await self._request("POST", "user/list", data=data)
+        return self._validate_list_response(result, UserResponse, "users")
     
     # File operations
-    async def list_files(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[File]:
+    async def list_files(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[FileResponse]:
         """List files."""
-        data = {"limit": limit}
+        data = {"pageSize": limit}
         if task_id:
             data["taskId"] = task_id
         if project_id:
             data["projectId"] = project_id
             
-        result = await self._request("POST", "file/list", data)
-        
-        files = []
-        file_list = result.get("files", result.get("data", []))
-        for file_data in file_list:
-            files.append(File(
-                id=file_data["id"],
-                name=file_data.get("name", ""),
-                size=file_data.get("size", 0),
-                created_date=file_data.get("createdDate", {}).get("datetime", ""),
-                author=file_data.get("author", {}).get("name", ""),
-                task_id=file_data.get("taskId"),
-                project_id=file_data.get("projectId")
-            ))
-        
-        return files
+        result = await self._request("POST", "file/list", data=data)
+        return self._validate_list_response(result, FileResponse, "files")
     
     # Comment operations  
-    async def list_comments(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[Comment]:
+    async def list_comments(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[CommentResponse]:
         """List comments."""
-        data = {"limit": limit}
+        data = {
+            "offset": 0,
+            "pageSize": limit,
+            "fields": "id,description,dateTime,owner,type"
+        }
+        
+        # For task comments, use task-specific endpoint
         if task_id:
-            data["taskId"] = task_id
-        if project_id:
-            data["projectId"] = project_id
+            result = await self._request("POST", f"task/{task_id}/comments/list", data=data)
+        elif project_id:
+            result = await self._request("POST", f"project/{project_id}/comments/list", data=data)
+        else:
+            # General comment list endpoint (if available)
+            result = await self._request("POST", "comment/list", data=data)
             
-        result = await self._request("POST", "comment/list", data)
-        
-        comments = []
-        comment_list = result.get("comments", result.get("data", []))
-        for comment_data in comment_list:
-            comments.append(Comment(
-                id=comment_data["id"],
-                text=comment_data.get("text", ""),
-                author=comment_data.get("author", {}).get("name", ""),
-                created_date=comment_data.get("createdDate", {}).get("datetime", ""),
-                task_id=comment_data.get("taskId"),
-                project_id=comment_data.get("projectId")
-            ))
-        
-        return comments
+        return self._validate_list_response(result, CommentResponse, "comments")
+    
+    async def add_comment_to_contact(self, contact_id: Union[int, str], comment_data: CommentCreateRequest) -> int:
+        """Add comment to a contact."""
+        result = await self._request("POST", f"contact/{contact_id}/comments/", data=comment_data.model_dump(exclude_none=True))
+        return result.get("id")
     
     # Report operations
     async def list_reports(self, limit: int = 20) -> List[Report]:
         """List reports."""
-        result = await self._request("POST", "report/list", {"limit": limit})
-        
-        reports = []
-        report_list = result.get("reports", result.get("data", []))
-        for report_data in report_list:
-            reports.append(Report(
-                id=report_data["id"],
-                name=report_data.get("name", ""),
-                description=report_data.get("description", ""),
-                created_date=report_data.get("createdDate", {}).get("datetime", "")
-            ))
-        
-        return reports
+        data = {"pageSize": limit}
+        result = await self._request("POST", "report/list", data=data)
+        return self._validate_list_response(result, Report, "reports")
     
     # Process operations
     async def list_processes(self, limit: int = 20) -> List[Process]:
         """List processes."""
-        result = await self._request("POST", "process/list", {"limit": limit})
+        data = {"pageSize": limit}
+        result = await self._request("POST", "process/list", data=data)
         
+        # Map to legacy Process model for now
         processes = []
-        process_list = result.get("processes", result.get("data", []))
+        process_list = result.get("processes", [])
         for process_data in process_list:
             processes.append(Process(
                 id=process_data["id"],
@@ -475,10 +336,60 @@ class PlanfixAPI:
     async def test_connection(self) -> bool:
         """Test API connection."""
         try:
-            await self._request("POST", "contact/list")
+            await self._request("POST", "contact/list", data={"pageSize": 1})
             return True
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False
+
+    # Legacy methods for backwards compatibility
+    async def get_contacts(self, limit: int = 20) -> List[Contact]:
+        """Get recent contacts (legacy method)."""
+        contacts_response = await self.search_contacts(limit=limit)
+        
+        # Convert to legacy Contact model
+        contacts = []
+        for contact_data in contacts_response:
+            phone = ""
+            if contact_data.phones and len(contact_data.phones) > 0:
+                phone = contact_data.phones[0].number or ""
+            
+            contacts.append(Contact(
+                id=contact_data.id or 0,
+                name=contact_data.name or "",
+                midname=contact_data.midname or "",
+                lastname=contact_data.lastname or "",
+                email=contact_data.email or "",
+                phone=phone,
+                company="",  # Not directly available in new model
+                position=contact_data.position or "",
+                description=contact_data.description or "",
+                is_company=contact_data.isCompany or False,
+                created_date=contact_data.createdDate.datetime if contact_data.createdDate else ""
+            ))
+        
+        return contacts
+
+    async def get_contact_details(self, contact_id: int) -> Contact:
+        """Get contact details (legacy method)."""
+        contact_response = await self.get_contact(contact_id)
+        
+        phone = ""
+        if contact_response.phones and len(contact_response.phones) > 0:
+            phone = contact_response.phones[0].number or ""
+        
+        return Contact(
+            id=contact_response.id or 0,
+            name=contact_response.name or "",
+            midname=contact_response.midname or "",
+            lastname=contact_response.lastname or "",
+            email=contact_response.email or "",
+            phone=phone,
+            company="",  # Not directly available in new model
+            position=contact_response.position or "",
+            description=contact_response.description or "",
+            is_company=contact_response.isCompany or False,
+            created_date=contact_response.createdDate.datetime if contact_response.createdDate else ""
+        )
 
 

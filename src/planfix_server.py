@@ -9,17 +9,17 @@ Planfix MCP Server
 Версия: 1.0.0
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import sys
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .config import config
-from .planfix_api import PlanfixAPI, PlanfixError
+from .planfix_api import PlanfixAPI, PlanfixError, PlanfixValidationError
 from .utils import (
     format_date,
     format_error,
@@ -32,10 +32,81 @@ from .utils import (
     format_process_list,
 )
 
+# ============================================================================
+# INPUT VALIDATION MODELS
+# ============================================================================
+
+class TaskSearchRequest(BaseModel):
+    """Validation model for task search parameters."""
+    query: str = Field(default="", description="Search query for task name")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
+    assignee_id: Optional[int] = Field(default=None, ge=1, description="Assignee ID filter")
+    status: str = Field(default="active", description="Task status filter")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+    
+    @field_validator('status')
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        allowed_statuses = ['active', 'completed', 'all']
+        if v not in allowed_statuses:
+            raise ValueError(f"Status must be one of: {', '.join(allowed_statuses)}")
+        return v
+
+
+class ContactSearchRequest(BaseModel):
+    """Validation model for contact search parameters."""
+    query: str = Field(default="", max_length=255, description="Search query for contact name")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+    is_company: bool = Field(default=False, description="Filter for companies only")
+
+
+class ContactDetailsRequest(BaseModel):
+    """Validation model for contact details request."""
+    contact_id: int = Field(..., ge=1, description="Contact ID")
+
+
+class ListRequest(BaseModel):
+    """Validation model for basic list parameters."""
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+
+
+class FileListRequest(BaseModel):
+    """Validation model for file list parameters."""
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+    task_id: Optional[int] = Field(default=None, ge=1, description="Task ID filter")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
+
+
+class CommentListRequest(BaseModel):
+    """Validation model for comment list parameters."""
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+    task_id: Optional[int] = Field(default=None, ge=1, description="Task ID filter")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
+
+
+# ============================================================================
+# VALIDATION HELPER FUNCTIONS
+# ============================================================================
+
+def validate_input(data: Dict[str, Any], model_class: type) -> BaseModel:
+    """Validate input data against a Pydantic model."""
+    try:
+        return model_class(**data)
+    except ValidationError as e:
+        error_details: list[str] = []
+        for error in e.errors():
+            field = " -> ".join(str(x) for x in error['loc'])
+            message = error['msg']
+            error_details.append(f"Поле '{field}': {message}")
+        
+        raise PlanfixValidationError(f"Ошибка валидации входных данных:\n" + "\n".join(error_details))
+
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO)
 logger = logging.getLogger(__name__)
 api = None
+
 # Lifespan context for server initialization
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
@@ -90,8 +161,6 @@ mcp = FastMCP(
 # ИНСТРУМЕНТЫ (TOOLS) - Действия, которые может выполнять LLM
 # ============================================================================
 
-# Removed create_task tool - read-only scope
-
 @mcp.tool()
 async def search_tasks(
     query: str = "",
@@ -117,29 +186,43 @@ async def search_tasks(
         search_tasks("презентация", status="active")
     """
     try:
-        ctx.info(f"Поиск задач: query='{query}', status='{status}'")
+        # Validate input parameters
+        request_data = {
+            "query": query,
+            "project_id": project_id,
+            "assignee_id": assignee_id,
+            "status": status,
+            "limit": limit
+        }
+        validated_request = validate_input(request_data, TaskSearchRequest)
         
-        # Search tasks via API
+        ctx.info(f"Поиск задач: query='{validated_request.query}', status='{validated_request.status}'")
+        
+        if api is None:
+            return "❌ API не инициализирован"
+        
+        # Search tasks via API using validated parameters
         tasks = await api.search_tasks(
-            query=query,
-            project_id=project_id,
-            assignee_id=assignee_id,
-            status=status
+            query=validated_request.query,
+            project_id=validated_request.project_id,
+            assignee_id=validated_request.assignee_id,
+            status=validated_request.status,
+            limit=validated_request.limit
         )
-        
-        # Limit results
-        if limit and len(tasks) > limit:
-            tasks = tasks[:limit]
         
         # Format and return results
         result = format_task_list(tasks)
         
-        if len(tasks) >= limit:
-            result += f"\n\n💡 Показаны первые {limit} результатов. Уточните поиск для более точных результатов."
+        if len(tasks) >= validated_request.limit:
+            result += f"\n\n💡 Показаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
             
         ctx.info(f"Найдено задач: {len(tasks)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        ctx.error(f"Ошибка валидации поиска задач: {e}")
+        return error_msg
     except PlanfixError as e:
         error_msg = format_error(e, "поиске задач")
         ctx.error(f"Ошибка поиска задач: {e}")
@@ -163,13 +246,15 @@ async def search_tasks(
 @mcp.tool()
 async def search_contacts(
     query: str = "",
-    limit: int = 20
+    limit: int = 20,
+    is_company: bool = False
 ) -> str:
     """Поиск контактов в Planfix.
     
     Args:
         query: Поисковый запрос по имени контакта
         limit: Максимальное количество результатов (по умолчанию 20)
+        is_company: Искать только компании (по умолчанию false)
         
     Returns:
         Отформатированный список найденных контактов
@@ -178,17 +263,33 @@ async def search_contacts(
         search_contacts("Иван", 10)
     """
     try:
-        logger.info(f"Поиск контактов: query='{query}'")
+        # Validate input parameters
+        request_data = {
+            "query": query,
+            "limit": limit,
+            "is_company": is_company
+        }
+        validated_request = validate_input(request_data, ContactSearchRequest)
+        
+        logger.info(f"Поиск контактов: query='{validated_request.query}', is_company={validated_request.is_company}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        contacts = await api.search_contacts(query=query, limit=limit)
+        contacts = await api.search_contacts(
+            query=validated_request.query, 
+            limit=validated_request.limit,
+            is_company=validated_request.is_company
+        )
         result = format_contact_list(contacts)
         
         logger.info(f"Найдено контактов: {len(contacts)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации поиска контактов: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "поиске контактов")
         logger.error(f"Unexpected error searching contacts: {e}")
@@ -208,12 +309,16 @@ async def get_contact_details(contact_id: int) -> str:
         get_contact_details(123)
     """
     try:
-        logger.info(f"Получение деталей контакта: {contact_id}")
+        # Validate input parameters
+        request_data = {"contact_id": contact_id}
+        validated_request = validate_input(request_data, ContactDetailsRequest)
+        
+        logger.info(f"Получение деталей контакта: {validated_request.contact_id}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        contact = await api.get_contact(contact_id)
+        contact = await api.get_contact_details(validated_request.contact_id)
         
         # Format single contact as detailed view
         name = contact.name or "Без имени"
@@ -241,6 +346,10 @@ async def get_contact_details(contact_id: int) -> str:
         
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения контакта: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении контакта")
         logger.error(f"Unexpected error getting contact: {e}")
@@ -260,17 +369,25 @@ async def list_employees(limit: int = 20) -> str:
         list_employees(10)
     """
     try:
-        logger.info(f"Получение списка сотрудников: limit={limit}")
+        # Validate input parameters
+        request_data = {"limit": limit}
+        validated_request = validate_input(request_data, ListRequest)
+        
+        logger.info(f"Получение списка сотрудников: limit={validated_request.limit}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        employees = await api.list_employees(limit=limit)
+        employees = await api.list_employees(limit=validated_request.limit)
         result = format_employee_list(employees)
         
         logger.info(f"Найдено сотрудников: {len(employees)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения сотрудников: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении сотрудников")
         logger.error(f"Unexpected error listing employees: {e}")
@@ -296,17 +413,33 @@ async def list_files(
         list_files(10, task_id=123)
     """
     try:
-        logger.info(f"Получение списка файлов: limit={limit}, task_id={task_id}, project_id={project_id}")
+        # Validate input parameters
+        request_data = {
+            "limit": limit,
+            "task_id": task_id,
+            "project_id": project_id
+        }
+        validated_request = validate_input(request_data, FileListRequest)
+        
+        logger.info(f"Получение списка файлов: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        files = await api.list_files(limit=limit, task_id=task_id, project_id=project_id)
+        files = await api.list_files(
+            limit=validated_request.limit, 
+            task_id=validated_request.task_id, 
+            project_id=validated_request.project_id
+        )
         result = format_file_list(files)
         
         logger.info(f"Найдено файлов: {len(files)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения файлов: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении файлов")
         logger.error(f"Unexpected error listing files: {e}")
@@ -332,17 +465,33 @@ async def list_comments(
         list_comments(10, task_id=123)
     """
     try:
-        logger.info(f"Получение списка комментариев: limit={limit}, task_id={task_id}, project_id={project_id}")
+        # Validate input parameters
+        request_data = {
+            "limit": limit,
+            "task_id": task_id,
+            "project_id": project_id
+        }
+        validated_request = validate_input(request_data, CommentListRequest)
+        
+        logger.info(f"Получение списка комментариев: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        comments = await api.list_comments(limit=limit, task_id=task_id, project_id=project_id)
+        comments = await api.list_comments(
+            limit=validated_request.limit, 
+            task_id=validated_request.task_id, 
+            project_id=validated_request.project_id
+        )
         result = format_comment_list(comments)
         
         logger.info(f"Найдено комментариев: {len(comments)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения комментариев: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении комментариев")
         logger.error(f"Unexpected error listing comments: {e}")
@@ -362,17 +511,25 @@ async def list_reports(limit: int = 20) -> str:
         list_reports(10)
     """
     try:
-        logger.info(f"Получение списка отчётов: limit={limit}")
+        # Validate input parameters
+        request_data = {"limit": limit}
+        validated_request = validate_input(request_data, ListRequest)
+        
+        logger.info(f"Получение списка отчётов: limit={validated_request.limit}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        reports = await api.list_reports(limit=limit)
+        reports = await api.list_reports(limit=validated_request.limit)
         result = format_report_list(reports)
         
         logger.info(f"Найдено отчётов: {len(reports)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения отчётов: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении отчётов")
         logger.error(f"Unexpected error listing reports: {e}")
@@ -392,17 +549,25 @@ async def list_processes(limit: int = 20) -> str:
         list_processes(10)
     """
     try:
-        logger.info(f"Получение списка процессов: limit={limit}")
+        # Validate input parameters
+        request_data = {"limit": limit}
+        validated_request = validate_input(request_data, ListRequest)
+        
+        logger.info(f"Получение списка процессов: limit={validated_request.limit}")
         
         if api is None:
             return "❌ API не инициализирован"
             
-        processes = await api.list_processes(limit=limit)
+        processes = await api.list_processes(limit=validated_request.limit)
         result = format_process_list(processes)
         
         logger.info(f"Найдено процессов: {len(processes)}")
         return result
         
+    except PlanfixValidationError as e:
+        error_msg = f"❌ {str(e)}"
+        logger.error(f"Ошибка валидации получения процессов: {e}")
+        return error_msg
     except Exception as e:
         error_msg = format_error(e, "получении процессов")
         logger.error(f"Unexpected error listing processes: {e}")
@@ -423,7 +588,7 @@ async def get_dashboard_summary() -> str:
         # Calculate stats
         active_count = len(active_tasks)
         overdue_count = sum(1 for task in active_tasks 
-                          if task.deadline and task.deadline < datetime.now().strftime("%Y-%m-%d"))
+                          if hasattr(task, 'deadline') and task.deadline and task.deadline < datetime.now().strftime("%Y-%m-%d"))
         
         # Get completed tasks today (mock data for now)
         completed_today = 8  # This would be a real API call
@@ -437,7 +602,7 @@ async def get_dashboard_summary() -> str:
         
         result += "🎯 **ПРОЕКТЫ:**\n"
         result += f"   └─ Всего проектов: {len(projects)}\n"
-        active_projects = [p for p in projects if p.status != "COMPLETED"]
+        active_projects = [p for p in projects if hasattr(p, 'status') and p.status != "COMPLETED"]
         result += f"   └─ Активные: {len(active_projects)}\n\n"
         
         result += "📈 **АКТИВНОСТЬ:**\n"
@@ -463,11 +628,11 @@ async def get_projects_list() -> str:
         
         for i, project in enumerate(projects, 1):
             result += f"{i}. **{project.name}** (#{project.id})\n"
-            if project.status:
+            if hasattr(project, 'status') and project.status:
                 result += f"   └─ Статус: {project.status}\n"
-            if project.owner:
+            if hasattr(project, 'owner') and project.owner:
                 result += f"   └─ Владелец: {project.owner}\n"
-            if project.task_count:
+            if hasattr(project, 'task_count') and project.task_count:
                 result += f"   └─ Задач: {project.task_count}\n"
             result += "\n"
         
@@ -481,36 +646,41 @@ async def get_projects_list() -> str:
 async def get_task_details(task_id: str) -> str:
     """Детальная информация о задаче."""
     try:
-        task_id_int = int(task_id)
+        # Validate task_id parameter
+        try:
+            task_id_int = int(task_id)
+            if task_id_int < 1:
+                raise ValueError("Task ID must be positive")
+        except ValueError:
+            return f"❌ Неверный ID задачи: {task_id}"
+        
         task = await api.get_task(task_id_int)
         
         result = f"📋 **Задача #{task.id}**\n\n"
         result += f"📝 **Название:** {task.name}\n"
         
-        if task.description:
+        if hasattr(task, 'description') and task.description:
             result += f"📄 **Описание:** {task.description[:200]}{'...' if len(task.description) > 200 else ''}\n"
         
-        if task.status:
+        if hasattr(task, 'status') and task.status:
             result += f"🔄 **Статус:** {task.status}\n"
         
-        if task.assignee:
+        if hasattr(task, 'assignee') and task.assignee:
             result += f"👤 **Исполнитель:** {task.assignee}\n"
         
-        if task.project:
+        if hasattr(task, 'project') and task.project:
             result += f"🎯 **Проект:** {task.project}\n"
         
-        if task.priority:
+        if hasattr(task, 'priority') and task.priority:
             result += f"⚡ **Приоритет:** {task.priority}\n"
         
-        if task.deadline:
+        if hasattr(task, 'deadline') and task.deadline:
             result += f"⏰ **Срок:** {format_date(task.deadline)}\n"
         
         result += f"\n🕒 **Обновлено:** {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         
         return result
         
-    except ValueError:
-        return f"❌ Неверный ID задачи: {task_id}"
     except Exception as e:
         logger.error(f"Error getting task {task_id}: {e}")
         return f"❌ Ошибка получения задачи: {format_error(e)}"
