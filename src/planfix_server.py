@@ -193,7 +193,7 @@ async def search_tasks(
         ctx.info(f"Поиск задач: query='{validated_request.query}', status='{validated_request.status}'")
         
         if api is None:
-            return "❌ API не инициализирован"
+            return "API не инициализирован"
         
         # Search tasks via API using validated parameters
         tasks = await api.search_tasks(
@@ -208,7 +208,7 @@ async def search_tasks(
         result = json.dumps([task.model_dump() for task in tasks], indent=2, ensure_ascii=False)
         
         if len(tasks) >= validated_request.limit:
-            result += f"\n\n💡 Показаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
+            result += f"\n\nПоказаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
             
         ctx.info(f"Найдено задач: {len(tasks)}")
         return result
@@ -320,23 +320,23 @@ async def get_contact_details(contact_id: int) -> str:
         lastname = contact.lastname or ""
         full_name = f"{name} {midname} {lastname}".strip()
         
-        result = f"👤 **Контакт #{contact.id}**\n\n"
-        result += f"📝 **Имя:** {full_name}\n"
+        result = f"Контакт #{contact.id}\n\n"
+        result += f"Имя: {full_name}\n"
         
         if contact.email:
-            result += f"📧 **Email:** {contact.email}\n"
+            result += f"Email: {contact.email}\n"
         if contact.phone:
-            result += f"📞 **Телефон:** {contact.phone}\n"
+            result += f"Телефон: {contact.phone}\n"
         if contact.company:
-            result += f"🏢 **Компания:** {contact.company}\n"
+            result += f"Компания: {contact.company}\n"
         if contact.position:
-            result += f"💼 **Должность:** {contact.position}\n"
+            result += f"Должность: {contact.position}\n"
         if contact.description:
-            result += f"📄 **Описание:** {contact.description[:200]}{'...' if len(contact.description) > 200 else ''}\n"
+            result += f"Описание: {contact.description[:200]}{'...' if len(contact.description) > 200 else ''}\n"
         if contact.is_company:
-            result += f"🏢 **Тип:** Компания\n"
+            result += f"Тип: Компания\n"
         if contact.created_date:
-            result += f"📅 **Создан:** {format_date(contact.created_date)}\n"
+            result += f"Создан: {format_date(contact.created_date)}\n"
         
         return result
         
@@ -587,21 +587,21 @@ async def get_dashboard_summary() -> str:
         # Get completed tasks today (mock data for now)
         completed_today = 8  # This would be a real API call
         
-        result = f"📊 **Сводка Planfix** на {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        result = f"Сводка Planfix на {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
         
-        result += "📋 **ЗАДАЧИ:**\n"
-        result += f"   └─ Активные: {active_count}\n"
-        result += f"   └─ Просрочены: {overdue_count}\n"
-        result += f"   └─ Завершены сегодня: {completed_today}\n\n"
+        result += "ЗАДАЧИ:\n"
+        result += f"- Активные: {active_count}\n"
+        result += f"- Просрочены: {overdue_count}\n"
+        result += f"- Завершены сегодня: {completed_today}\n\n"
         
-        result += "🎯 **ПРОЕКТЫ:**\n"
-        result += f"   └─ Всего проектов: {len(projects)}\n"
+        result += "ПРОЕКТЫ:\n"
+        result += f"- Всего проектов: {len(projects)}\n"
         active_projects = [p for p in projects if hasattr(p, 'status') and p.status != "COMPLETED"]
-        result += f"   └─ Активные: {len(active_projects)}\n\n"
+        result += f"- Активные: {len(active_projects)}\n\n"
         
-        result += "📈 **АКТИВНОСТЬ:**\n"
-        result += f"   └─ Средняя загрузка: 78%\n"  # Mock data
-        result += f"   └─ Обновлено: {datetime.now().strftime('%H:%M')}\n"
+        result += "АКТИВНОСТЬ:\n"
+        result += f"- Средняя загрузка: 78%\n"  # Mock data
+        result += f"- Обновлено: {datetime.now().strftime('%H:%M')}\n"
         
         return result
         
@@ -616,18 +616,18 @@ async def get_projects_list() -> str:
         projects = await api.get_projects()
         
         if not projects:
-            return "📂 Проекты не найдены."
+            return "Проекты не найдены."
         
-        result = f"🎯 **Проекты** ({len(projects)} шт.)\n\n"
+        result = f"Проекты ({len(projects)} шт.)\n\n"
         
         for i, project in enumerate(projects, 1):
-            result += f"{i}. **{project.name}** (#{project.id})\n"
+            result += f"{i}. {project.name} (#{project.id})\n"
             if hasattr(project, 'status') and project.status:
-                result += f"   └─ Статус: {project.status}\n"
+                result += f"- Статус: {project.status}\n"
             if hasattr(project, 'owner') and project.owner:
-                result += f"   └─ Владелец: {project.owner}\n"
+                result += f"- Владелец: {project.owner}\n"
             if hasattr(project, 'task_count') and project.task_count:
-                result += f"   └─ Задач: {project.task_count}\n"
+                result += f"- Задач: {project.task_count}\n"
             result += "\n"
         
         return result.strip()
@@ -650,14 +650,14 @@ async def get_task_details(task_id: str) -> str:
         
         task = await api.get_task(task_id_int)
         
-        result = f"📋 **Задача #{task.id}**\n\n"
-        result += f"📝 **Название:** {task.name}\n"
+        result = f"Задача #{task.id}\n\n"
+        result += f"Название: {task.name}\n"
         
         if hasattr(task, 'description') and task.description:
-            result += f"📄 **Описание:** {task.description[:200]}{'...' if len(task.description) > 200 else ''}\n"
+            result += f"Описание: {task.description[:200]}{'...' if len(task.description) > 200 else ''}\n"
         
         if hasattr(task, 'status') and task.status:
-            result += f"🔄 **Статус:** {task.status}\n"
+            result += f"Статус: {task.status}\n"
         
         # Handle both TaskResponse and legacy Task models for assignee
         assignee = None
@@ -669,18 +669,18 @@ async def get_task_details(task_id: str) -> str:
             assignee = task.assignee
         
         if assignee:
-            result += f"👤 **Исполнитель:** {assignee}\n"
+            result += f"Исполнитель: {assignee}\n"
         
         if hasattr(task, 'project') and task.project:
-            result += f"🎯 **Проект:** {task.project}\n"
+            result += f"Проект: {task.project}\n"
         
         if hasattr(task, 'priority') and task.priority:
-            result += f"⚡ **Приоритет:** {task.priority}\n"
+            result += f"Приоритет: {task.priority}\n"
         
         if hasattr(task, 'deadline') and task.deadline:
-            result += f"⏰ **Срок:** {format_date(task.deadline)}\n"
+            result += f"Срок: {format_date(task.deadline)}\n"
         
-        result += f"\n🕒 **Обновлено:** {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        result += f"\nОбновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         
         return result
         
@@ -695,21 +695,21 @@ async def get_recent_contacts() -> str:
         contacts = await api.get_contacts(limit=10)
         
         if not contacts:
-            return "👥 Контакты не найдены."
+            return "Контакты не найдены."
         
-        result = f"👥 **Недавние контакты** ({len(contacts)} шт.)\n\n"
+        result = f"Недавние контакты ({len(contacts)} шт.)\n\n"
         
         for i, contact in enumerate(contacts, 1):
-            result += f"{i}. **{contact.name}** (#{contact.id})\n"
+            result += f"{i}. {contact.name} (#{contact.id})\n"
             
             if contact.email:
-                result += f"   └─ 📧 {contact.email}\n"
+                result += f"- Email: {contact.email}\n"
             if contact.phone:
-                result += f"   └─ 📞 {contact.phone}\n"
+                result += f"- Телефон: {contact.phone}\n"
             if contact.company:
-                result += f"   └─ 🏢 {contact.company}\n"
+                result += f"- Компания: {contact.company}\n"
             if contact.position:
-                result += f"   └─ 💼 {contact.position}\n"
+                result += f"- Должность: {contact.position}\n"
             result += "\n"
         
         return result.strip()
