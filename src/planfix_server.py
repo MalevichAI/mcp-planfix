@@ -9,6 +9,7 @@ Planfix MCP Server
 Версия: 1.0.0
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -23,13 +24,6 @@ from .planfix_api import PlanfixAPI, PlanfixError, PlanfixValidationError
 from .utils import (
     format_date,
     format_error,
-    format_task_list,
-    format_contact_list,
-    format_employee_list,
-    format_comment_list,
-    format_file_list,
-    format_report_list,
-    format_process_list,
 )
 
 # ============================================================================
@@ -211,7 +205,7 @@ async def search_tasks(
         )
         
         # Format and return results
-        result = format_task_list(tasks)
+                    result = json.dumps([task.model_dump() for task in tasks], indent=2, ensure_ascii=False)
         
         if len(tasks) >= validated_request.limit:
             result += f"\n\n💡 Показаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
@@ -281,7 +275,7 @@ async def search_contacts(
             limit=validated_request.limit,
             is_company=validated_request.is_company
         )
-        result = format_contact_list(contacts)
+        result = json.dumps([contact.model_dump() for contact in contacts], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено контактов: {len(contacts)}")
         return result
@@ -379,7 +373,7 @@ async def list_employees(limit: int = 20) -> str:
             return "❌ API не инициализирован"
             
         employees = await api.list_employees(limit=validated_request.limit)
-        result = format_employee_list(employees)
+        result = json.dumps([employee.model_dump() for employee in employees], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено сотрудников: {len(employees)}")
         return result
@@ -431,7 +425,7 @@ async def list_files(
             task_id=validated_request.task_id, 
             project_id=validated_request.project_id
         )
-        result = format_file_list(files)
+        result = json.dumps([file.model_dump() for file in files], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено файлов: {len(files)}")
         return result
@@ -483,7 +477,7 @@ async def list_comments(
             task_id=validated_request.task_id, 
             project_id=validated_request.project_id
         )
-        result = format_comment_list(comments)
+        result = json.dumps([comment.model_dump() for comment in comments], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено комментариев: {len(comments)}")
         return result
@@ -521,7 +515,7 @@ async def list_reports(limit: int = 20) -> str:
             return "❌ API не инициализирован"
             
         reports = await api.list_reports(limit=validated_request.limit)
-        result = format_report_list(reports)
+        result = json.dumps([report.model_dump() for report in reports], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено отчётов: {len(reports)}")
         return result
@@ -559,7 +553,7 @@ async def list_processes(limit: int = 20) -> str:
             return "❌ API не инициализирован"
             
         processes = await api.list_processes(limit=validated_request.limit)
-        result = format_process_list(processes)
+        result = json.dumps([process.model_dump() for process in processes], indent=2, ensure_ascii=False)
         
         logger.info(f"Найдено процессов: {len(processes)}")
         return result
@@ -665,8 +659,17 @@ async def get_task_details(task_id: str) -> str:
         if hasattr(task, 'status') and task.status:
             result += f"🔄 **Статус:** {task.status}\n"
         
-        if hasattr(task, 'assignee') and task.assignee:
-            result += f"👤 **Исполнитель:** {task.assignee}\n"
+        # Handle both TaskResponse and legacy Task models for assignee
+        assignee = None
+        if hasattr(task, 'assigner') and task.assigner:
+            assignee = getattr(task.assigner, 'name', None)
+        elif hasattr(task, 'assignees') and task.assignees and task.assignees.users:
+            assignee = task.assignees.users[0].name if task.assignees.users[0].name else "Assigned"
+        elif hasattr(task, 'assignee') and task.assignee:
+            assignee = task.assignee
+        
+        if assignee:
+            result += f"👤 **Исполнитель:** {assignee}\n"
         
         if hasattr(task, 'project') and task.project:
             result += f"🎯 **Проект:** {task.project}\n"
