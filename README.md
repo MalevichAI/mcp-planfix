@@ -68,7 +68,7 @@ PLANFIX_USER_KEY=your-user-key
 
 ```bash
 # Запуск в режиме разработки
-uv run mcp dev src/planfix_server.py
+в
 
 # Или прямой запуск
 python src/planfix_server.py
@@ -138,6 +138,73 @@ uv run mcp install src/planfix_server.py --name "Planfix Integration" -f .env
   }
 }
 ```
+
+### Настройка в Cursor
+
+Cursor поддерживает MCP серверы начиная с версии 0.42+. Для подключения:
+
+1. **Откройте настройки Cursor**: `Cmd/Ctrl + ,`
+
+2. **Найдите раздел "MCP Servers"** или добавьте конфигурацию в файл настроек
+
+3. **Добавьте конфигурацию сервера**:
+
+```json
+
+```
+
+4. **Альтернативный способ через .cursorrules**:
+
+Создайте файл `.cursorrules` в корне вашего проекта:
+
+```
+MCP Server: Planfix Integration
+
+This project uses a Planfix MCP server for task and project management.
+
+Available tools:
+- search_tasks: Find tasks by query, project, assignee, or status
+- search_contacts: Search for contacts and companies  
+- get_contact_details: Get detailed information about a contact
+- list_employees: Get list of employees
+- list_files: Get files associated with tasks/projects
+- list_comments: Get comments for tasks/projects
+- list_reports: Get available reports
+- list_processes: Get business processes
+
+Server configuration:
+- Command: python /path/to/planfix-mcp/src/planfix_server.py
+- Requires PLANFIX_ACCOUNT, PLANFIX_API_KEY, PLANFIX_USER_KEY environment variables
+
+Use these tools to help with project management, task tracking, and CRM operations.
+```
+
+5. **Перезапустите Cursor** для применения изменений
+
+6. **Проверьте подключение**: В чате Cursor должны появиться доступные инструменты Planfix
+
+#### Использование в Cursor
+
+После настройки вы можете использовать Planfix прямо в чате Cursor:
+
+```
+Найди все активные задачи по проекту "Разработка сайта"
+```
+
+```
+Покажи детали контакта с ID 123
+```
+
+```
+Создай отчет по всем просроченным задачам
+```
+
+#### Устранение проблем в Cursor
+
+- **Проверьте пути**: Используйте абсолютные пути к файлам
+- **Переменные окружения**: Убедитесь, что все API ключи указаны корректно
+- **Логи**: Проверьте вывод в консоли разработчика Cursor (`Cmd/Ctrl + Shift + I`)
+- **Версия**: Убедитесь, что используете Cursor 0.42 или новее
 
 ## Разработка
 
@@ -225,7 +292,6 @@ MIT License - см. [LICENSE](LICENSE) файл.
 ## Поддержка
 
 - GitHub Issues: для сообщений об ошибках и запросов функций
-- Документация Planfix API: https://planfix.com/docs/api/
 - MCP Documentation: https://modelcontextprotocol.io/
 
 ## Changelog

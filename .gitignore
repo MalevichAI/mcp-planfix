@@ -82,3 +82,4 @@ config.local.py
 *.tmp
 *.temp
 .temp/
+*.json
