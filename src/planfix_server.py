@@ -14,9 +14,9 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, TypeVar
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .config import config
@@ -30,13 +30,31 @@ from .utils import (
 # INPUT VALIDATION MODELS
 # ============================================================================
 
-class TaskSearchRequest(BaseModel):
-    """Validation model for task search parameters."""
-    query: str = Field(default="", description="Search query for task name")
-    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
-    assignee_id: Optional[int] = Field(default=None, ge=1, description="Assignee ID filter")
+class PaginationMixin(BaseModel):
+    """Base pagination parameters for list operations."""
+    offset: int = Field(default=0, ge=0, description="Number of records to skip for pagination (0-based)")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of records to return per page")
+    page: Optional[int] = Field(default=None, ge=1, description="Page number (1-based, alternative to offset)")
+    
+    def get_offset(self) -> int:
+        """Calculate offset from page number if provided, otherwise use offset directly."""
+        if self.page is not None:
+            return (self.page - 1) * self.limit
+        return self.offset
+
+
+class TaskSearchRequest(PaginationMixin):
+    """
+    Validation model for task search parameters.
+    
+    Supports pagination via offset/limit or page/limit combinations.
+    Returns TaskResponse objects containing minimal task information.
+    Use get_task(task_id) for detailed task information.
+    """
+    query: str = Field(default="", description="Search query for task name (partial matching)")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Filter tasks by specific project ID")
+    assignee_id: Optional[int] = Field(default=None, ge=1, description="Filter tasks by specific assignee user ID")
     status: str = Field(default="active", description="Task status filter")
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
     
     @field_validator('status')
     @classmethod
@@ -47,47 +65,72 @@ class TaskSearchRequest(BaseModel):
         return v
 
 
-class ContactSearchRequest(BaseModel):
-    """Validation model for contact search parameters."""
-    query: str = Field(default="", max_length=255, description="Search query for contact name")
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
-    is_company: bool = Field(default=False, description="Filter for companies only")
+class ContactSearchRequest(PaginationMixin):
+    """
+    Validation model for contact search parameters.
+    
+    Returns ContactResponse objects with basic contact information.
+    For complete contact details including custom fields, use get_contact_details(contact_id).
+    """
+    query: str = Field(default="", max_length=255, description="Search query for contact name (partial matching)")
+    is_company: bool = Field(default=False, description="Filter for company contacts only (excludes individuals)")
 
 
 class ContactDetailsRequest(BaseModel):
-    """Validation model for contact details request."""
-    contact_id: int = Field(..., ge=1, description="Contact ID")
+    """
+    Validation model for contact details request.
+    
+    Returns full ContactResponse with all available fields including phones,
+    custom fields, companies, and detailed metadata.
+    """
+    contact_id: int = Field(..., ge=1, description="Unique contact identifier")
 
 
-class ListRequest(BaseModel):
-    """Validation model for basic list parameters."""
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
+class ListRequest(PaginationMixin):
+    """
+    Base validation model for simple list operations with pagination.
+    
+    Used for endpoints that return basic entity lists.
+    Individual items contain minimal information (id, name).
+    Use specific GET endpoints for detailed information.
+    """
+    pass
 
 
-class FileListRequest(BaseModel):
-    """Validation model for file list parameters."""
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
-    task_id: Optional[int] = Field(default=None, ge=1, description="Task ID filter")
-    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
+class FileListRequest(PaginationMixin):
+    """
+    Validation model for file list parameters with optional entity filtering.
+    
+    Returns FileResponse objects with basic file metadata.
+    Files can be filtered by task or project association.
+    """
+    task_id: Optional[int] = Field(default=None, ge=1, description="Filter files attached to specific task ID")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Filter files attached to specific project ID")
 
 
-class CommentListRequest(BaseModel):
-    """Validation model for comment list parameters."""
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results")
-    task_id: Optional[int] = Field(default=None, ge=1, description="Task ID filter")
-    project_id: Optional[int] = Field(default=None, ge=1, description="Project ID filter")
+class CommentListRequest(PaginationMixin):
+    """
+    Validation model for comment list parameters with optional entity filtering.
+    
+    Returns CommentResponse objects with comment text and basic metadata.
+    Comments can be filtered by task or project association.
+    """
+    task_id: Optional[int] = Field(default=None, ge=1, description="Filter comments from specific task ID")
+    project_id: Optional[int] = Field(default=None, ge=1, description="Filter comments from specific project ID")
 
 
 # ============================================================================
 # VALIDATION HELPER FUNCTIONS
 # ============================================================================
 
-def validate_input(data: Dict[str, Any], model_class: type) -> BaseModel:
+T = TypeVar('T', bound=BaseModel)
+
+def validate_input(data: Dict[str, Any], model_class: type[T]) -> T:
     """Validate input data against a Pydantic model."""
     try:
         return model_class(**data)
     except ValidationError as e:
-        error_details: list[str] = []
+        error_details: List[str] = []
         for error in e.errors():
             field = " -> ".join(str(x) for x in error['loc'])
             message = error['msg']
@@ -161,36 +204,77 @@ async def search_tasks(
     project_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     status: str = "active",
+    offset: int = 0,
     limit: int = 20,
-    ctx: Context = None
+    page: Optional[int] = None
 ) -> str:
-    """Поиск задач в Planfix.
+    """
+    Search for tasks in Planfix with comprehensive filtering and pagination support.
+    
+    This endpoint returns a list of TaskResponse objects containing basic task information.
+    For complete task details including custom fields, attachments, and full assignee information,
+    use the task://{task_id} resource or implement a get_task_details tool.
+    
+    **Response Schema (TaskResponse objects):**
+    - id (int): Unique task identifier
+    - name (str): Task title/name
+    - description (str, optional): Task description (truncated in list view)
+    - priority (str, optional): Task priority level (Low, Normal, High, Urgent)
+    - status (TaskStatus, optional): Current task status with id and name
+    - assigner (PersonResponse, optional): User who assigned the task
+    - assignees (PeopleResponse, optional): Users and groups assigned to the task
+    - project (BaseEntity, optional): Associated project reference (id and name)
+    - startDateTime (TimePoint, optional): Task start date and time
+    - endDateTime (TimePoint, optional): Task due date and time
+    - Additional metadata fields (created date, last update, etc.)
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 tasks
+    - offset=20, limit=20: Get next 20 tasks (items 21-40)  
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Note:** This method returns only basic task information suitable for lists and overviews.
+    For detailed task information including complete assignee details, custom fields, 
+    attachments, and full metadata, use GET /task/{task_id} endpoint.
     
     Args:
-        query: Поисковый запрос по названию задачи
-        project_id: Фильтр по ID проекта
-        assignee_id: Фильтр по ID исполнителя
-        status: Статус задач (active, completed, all)
-        limit: Максимальное количество результатов (по умолчанию 20)
+        query (str): Search query for task name/title (supports partial matching)
+        project_id (int, optional): Filter tasks belonging to specific project ID
+        assignee_id (int, optional): Filter tasks assigned to specific user ID
+        status (str): Task status filter - "active" (default), "completed", or "all"
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
         
     Returns:
-        Отформатированный список найденных задач
+        str: JSON-formatted array of TaskResponse objects with pagination info
         
-    Example:
-        search_tasks("презентация", status="active")
+    Examples:
+        search_tasks("website redesign") - Find tasks with "website redesign" in name
+        search_tasks(project_id=123, status="active") - Active tasks from project 123
+        search_tasks(assignee_id=456, limit=50) - Tasks assigned to user 456, 50 results
+        search_tasks(query="bug", page=2, limit=10) - Second page of bug-related tasks
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
-        # Validate input parameters
+        # Validate input parameters with pagination support
         request_data = {
             "query": query,
             "project_id": project_id,
             "assignee_id": assignee_id,
             "status": status,
-            "limit": limit
+            "offset": offset,
+            "limit": limit,
+            "page": page
         }
         validated_request = validate_input(request_data, TaskSearchRequest)
         
-        ctx.info(f"Поиск задач: query='{validated_request.query}', status='{validated_request.status}'")
+        logger.info(f"Поиск задач: query='{validated_request.query}', status='{validated_request.status}', offset={validated_request.get_offset()}, limit={validated_request.limit}")
         
         if api is None:
             return "API не инициализирован"
@@ -207,19 +291,27 @@ async def search_tasks(
         # Format and return results
         result = json.dumps([task.model_dump() for task in tasks], indent=2, ensure_ascii=False)
         
+        # Add pagination info
         if len(tasks) >= validated_request.limit:
-            result += f"\n\nПоказаны первые {validated_request.limit} результатов. Уточните поиск для более точных результатов."
+            result += f"\n\nПоказаны {len(tasks)} результатов (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(tasks)} задач(и)"
             
-        ctx.info(f"Найдено задач: {len(tasks)}")
+        logger.info(f"Найдено задач: {len(tasks)}")
         return result
         
     except PlanfixValidationError as e:
         error_msg = f"Ошибка валидации: {str(e)}"
-        ctx.error(f"Ошибка валидации поиска задач: {e}")
+        logger.error(f"Ошибка валидации поиска задач: {e}")
         return error_msg
     except PlanfixError as e:
         error_msg = format_error(e, "поиске задач")
-        ctx.error(f"Ошибка поиска задач: {e}")
+        logger.error(f"Ошибка поиска задач: {e}")
         return error_msg
     except Exception as e:
         error_msg = format_error(e, "поиске задач")
@@ -291,16 +383,59 @@ async def search_contacts(
 
 @mcp.tool()
 async def get_contact_details(contact_id: int) -> str:
-    """Получить детальную информацию о контакте.
+    """
+    Retrieve comprehensive details for a specific contact by ID.
+    
+    This endpoint returns complete contact information including all available fields,
+    custom field data, associated companies, phone numbers, and full metadata.
+    This provides significantly more detail than the basic contact information
+    returned by search_contacts().
+    
+    **Complete ContactResponse Schema:**
+    - id (int): Unique contact identifier
+    - name (str): Primary contact name
+    - midname (str, optional): Middle name
+    - lastname (str, optional): Last name
+    - email (str, optional): Primary email address  
+    - additionalEmailAddresses (List[str], optional): Additional email addresses
+    - phones (List[PhoneResponse], optional): Phone numbers with types and masked versions
+    - position (str, optional): Job position/title
+    - description (str, optional): Full contact description (not truncated)
+    - address (str, optional): Physical address
+    - site (str, optional): Website URL
+    - gender (str, optional): Gender information
+    - birthDate (TimePoint, optional): Date of birth
+    - isCompany (bool): Whether this contact represents a company
+    - isDeleted (bool): Deletion status
+    - group (GroupResponse, optional): Contact group association
+    - companies (List[CompanyEntity], optional): Associated companies
+    - contacts (List[PersonResponse], optional): Related contacts
+    - supervisors (PeopleResponse, optional): Supervisor information
+    - files (List[FileResponse], optional): Attached files
+    - customFieldData (List[CustomFieldValueResponse], optional): Custom field values
+    - dataTags (List[DataTagEntryResponse], optional): Data tag associations
+    - createdDate (TimePoint, optional): Contact creation timestamp
+    - dateOfLastUpdate (TimePoint, optional): Last modification timestamp
+    - Social media fields: skype, telegram, facebook, instagram, vk, etc.
+    
+    **Difference from search_contacts():**
+    - search_contacts(): Returns basic contact info suitable for lists (id, name, email, position)
+    - get_contact_details(): Returns complete contact record with all fields and relationships
     
     Args:
-        contact_id: ID контакта
+        contact_id (int): Unique contact identifier (must be > 0)
         
     Returns:
-        Детальная информация о контакте
+        str: Human-readable formatted contact details with all available information
         
-    Example:
-        get_contact_details(123)
+    Examples:
+        get_contact_details(123) - Get full details for contact ID 123
+        get_contact_details(456) - Retrieve complete contact record for ID 456
+    
+    Raises:
+        PlanfixValidationError: Invalid contact_id parameter
+        PlanfixNotFoundError: Contact with specified ID not found
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
@@ -332,12 +467,13 @@ async def get_contact_details(contact_id: int) -> str:
         if contact.position:
             result += f"Должность: {contact.position}\n"
         if contact.description:
-            result += f"Описание: {contact.description[:200]}{'...' if len(contact.description) > 200 else ''}\n"
+            result += f"Описание: {contact.description}\n"  # Full description, not truncated
         if contact.is_company:
             result += f"Тип: Компания\n"
         if contact.created_date:
             result += f"Создан: {format_date(contact.created_date)}\n"
         
+        result += f"\nПолная детальная информация о контакте ID {contact.id}"
         return result
         
     except PlanfixValidationError as e:
@@ -350,30 +486,81 @@ async def get_contact_details(contact_id: int) -> str:
         return error_msg
 
 @mcp.tool()
-async def list_employees(limit: int = 20) -> str:
-    """Получить список сотрудников.
+async def list_employees(
+    offset: int = 0,
+    limit: int = 20,
+    page: Optional[int] = None
+) -> str:
+    """
+    List employees/users in the Planfix system with pagination support.
+    
+    This endpoint returns basic employee information suitable for user selection,
+    team lists, and assignee dropdowns. Returns minimal user data focused on
+    identification and contact information.
+    
+    **Response Schema (UserResponse objects):**
+    - id (int|str): Unique user identifier
+    - name (str): Full user name
+    - email (str, optional): User email address
+    - position (str, optional): Job position/title
+    - Additional basic user metadata
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 employees
+    - offset=20, limit=20: Get employees 21-40
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Note:** This method returns basic employee information (id, name, email, position).
+    For detailed employee information including permissions, groups, custom fields,
+    and full metadata, use GET /user/{user_id} endpoint if available.
     
     Args:
-        limit: Максимальное количество результатов (по умолчанию 20)
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
         
     Returns:
-        Список сотрудников
+        str: JSON-formatted array of UserResponse objects with pagination info
         
-    Example:
-        list_employees(10)
+    Examples:
+        list_employees() - Get first 20 employees
+        list_employees(limit=50) - Get first 50 employees
+        list_employees(offset=10, limit=5) - Get employees 11-15
+        list_employees(page=2, limit=25) - Get second page with 25 employees per page
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
-        request_data = {"limit": limit}
+        request_data = {
+            "offset": offset,
+            "limit": limit,
+            "page": page
+        }
         validated_request = validate_input(request_data, ListRequest)
         
-        logger.info(f"Получение списка сотрудников: limit={validated_request.limit}")
+        logger.info(f"Получение списка сотрудников: offset={validated_request.get_offset()}, limit={validated_request.limit}")
         
         if api is None:
             return "API не инициализирован"
             
         employees = await api.list_employees(limit=validated_request.limit)
         result = json.dumps([employee.model_dump() for employee in employees], indent=2, ensure_ascii=False)
+        
+        # Add pagination info
+        if len(employees) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(employees)} результатов (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(employees)} сотрудник(ов)"
         
         logger.info(f"Найдено сотрудников: {len(employees)}")
         return result
@@ -389,33 +576,77 @@ async def list_employees(limit: int = 20) -> str:
 
 @mcp.tool()
 async def list_files(
+    offset: int = 0,
     limit: int = 20,
+    page: Optional[int] = None,
     task_id: Optional[int] = None,
     project_id: Optional[int] = None
 ) -> str:
-    """Получить список файлов.
+    """
+    List files in the Planfix system with optional filtering and pagination.
+    
+    This endpoint returns basic file metadata including file names, sizes, and creation info.
+    Files can be filtered by task or project association. Returns minimal file information
+    suitable for file lists and attachment overviews.
+    
+    **Response Schema (FileResponse objects):**
+    - id (int): Unique file identifier
+    - name (str): File name with extension
+    - size (int, optional): File size in bytes
+    - created_date (str, optional): File upload timestamp
+    - author (str, optional): User who uploaded the file
+    - Additional basic file metadata
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 files
+    - offset=20, limit=20: Get files 21-40
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Filtering:**
+    - No filters: Returns all files user has access to
+    - task_id only: Returns files attached to specific task
+    - project_id only: Returns files from specific project
+    - Both filters: Returns files attached to specified task within specified project
+    
+    **Note:** This method returns basic file metadata (id, name, size, author).
+    For file download or detailed file information including custom fields and full metadata,
+    use GET /file/{file_id} endpoint if available.
     
     Args:
-        limit: Максимальное количество результатов (по умолчанию 20)
-        task_id: ID задачи для фильтрации файлов
-        project_id: ID проекта для фильтрации файлов
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
+        task_id (int, optional): Filter files attached to specific task ID
+        project_id (int, optional): Filter files from specific project ID
         
     Returns:
-        Список файлов
+        str: JSON-formatted array of FileResponse objects with pagination info
         
-    Example:
-        list_files(10, task_id=123)
+    Examples:
+        list_files() - Get first 20 files from all accessible sources
+        list_files(task_id=123) - Get files attached to task 123
+        list_files(project_id=456, limit=50) - Get first 50 files from project 456
+        list_files(task_id=123, project_id=456) - Get files from task 123 in project 456
+        list_files(page=2, limit=10) - Get second page with 10 files per page
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
         request_data = {
+            "offset": offset,
             "limit": limit,
+            "page": page,
             "task_id": task_id,
             "project_id": project_id
         }
         validated_request = validate_input(request_data, FileListRequest)
         
-        logger.info(f"Получение списка файлов: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
+        logger.info(f"Получение списка файлов: offset={validated_request.get_offset()}, limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
             return "API не инициализирован"
@@ -426,6 +657,24 @@ async def list_files(
             project_id=validated_request.project_id
         )
         result = json.dumps([file.model_dump() for file in files], indent=2, ensure_ascii=False)
+        
+        # Add pagination and filtering info
+        filter_info = []
+        if validated_request.task_id:
+            filter_info.append(f"задача {validated_request.task_id}")
+        if validated_request.project_id:
+            filter_info.append(f"проект {validated_request.project_id}")
+        filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
+        
+        if len(files) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(files)} результатов{filter_str} (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(files)} файл(ов){filter_str}"
         
         logger.info(f"Найдено файлов: {len(files)}")
         return result
@@ -441,33 +690,81 @@ async def list_files(
 
 @mcp.tool()
 async def list_comments(
+    offset: int = 0,
     limit: int = 20,
+    page: Optional[int] = None,
     task_id: Optional[int] = None,
     project_id: Optional[int] = None
 ) -> str:
-    """Получить список комментариев.
+    """
+    List comments in the Planfix system with optional filtering and pagination.
+    
+    This endpoint returns basic comment information including comment text and author details.
+    Comments can be filtered by task or project association. Returns minimal comment data
+    suitable for comment lists and activity feeds.
+    
+    **Response Schema (CommentResponse objects):**
+    - id (int): Unique comment identifier
+    - description (str): Comment text content
+    - dateTime (TimePoint): Comment creation timestamp
+    - owner (PersonResponse): User who created the comment
+    - type (str, optional): Comment type
+    - isPinned (bool, optional): Whether comment is pinned
+    - isHidden (bool, optional): Whether comment is hidden
+    - project (BaseEntity, optional): Associated project reference
+    - contact (BaseEntity, optional): Associated contact reference
+    - Additional basic comment metadata
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 comments
+    - offset=20, limit=20: Get comments 21-40
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Filtering:**
+    - No filters: Returns all comments user has access to
+    - task_id only: Returns comments from specific task
+    - project_id only: Returns comments from specific project  
+    - Both filters: Returns task comments within specified project
+    
+    **Note:** This method returns basic comment information (id, text, author, date).
+    For detailed comment information including attachments, recipients, reminders,
+    and full metadata, use GET /comment/{comment_id} endpoint if available.
     
     Args:
-        limit: Максимальное количество результатов (по умолчанию 20)
-        task_id: ID задачи для фильтрации комментариев
-        project_id: ID проекта для фильтрации комментариев
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
+        task_id (int, optional): Filter comments from specific task ID
+        project_id (int, optional): Filter comments from specific project ID
         
     Returns:
-        Список комментариев
+        str: JSON-formatted array of CommentResponse objects with pagination info
         
-    Example:
-        list_comments(10, task_id=123)
+    Examples:
+        list_comments() - Get first 20 comments from all accessible sources
+        list_comments(task_id=123) - Get comments from task 123
+        list_comments(project_id=456, limit=50) - Get first 50 comments from project 456
+        list_comments(task_id=123, project_id=456) - Get task 123 comments in project 456
+        list_comments(page=2, limit=15) - Get second page with 15 comments per page
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
         request_data = {
+            "offset": offset,
             "limit": limit,
+            "page": page,
             "task_id": task_id,
             "project_id": project_id
         }
         validated_request = validate_input(request_data, CommentListRequest)
         
-        logger.info(f"Получение списка комментариев: limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
+        logger.info(f"Получение списка комментариев: offset={validated_request.get_offset()}, limit={validated_request.limit}, task_id={validated_request.task_id}, project_id={validated_request.project_id}")
         
         if api is None:
             return "API не инициализирован"
@@ -478,6 +775,24 @@ async def list_comments(
             project_id=validated_request.project_id
         )
         result = json.dumps([comment.model_dump() for comment in comments], indent=2, ensure_ascii=False)
+        
+        # Add pagination and filtering info
+        filter_info = []
+        if validated_request.task_id:
+            filter_info.append(f"задача {validated_request.task_id}")
+        if validated_request.project_id:
+            filter_info.append(f"проект {validated_request.project_id}")
+        filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
+        
+        if len(comments) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(comments)} результатов{filter_str} (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(comments)} комментар(иев){filter_str}"
         
         logger.info(f"Найдено комментариев: {len(comments)}")
         return result
@@ -492,30 +807,79 @@ async def list_comments(
         return error_msg
 
 @mcp.tool()
-async def list_reports(limit: int = 20) -> str:
-    """Получить список отчётов.
+async def list_reports(
+    offset: int = 0,
+    limit: int = 20,
+    page: Optional[int] = None
+) -> str:
+    """
+    List available reports in the Planfix system with pagination support.
+    
+    This endpoint returns basic report information including report names and descriptions.
+    Returns minimal report metadata suitable for report selection and overview displays.
+    
+    **Response Schema (Report objects):**
+    - id (int): Unique report identifier
+    - name (str): Report name/title
+    - description (str, optional): Report description
+    - fields (List[ReportField], optional): Available report fields
+    - Additional basic report metadata
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 reports
+    - offset=20, limit=20: Get reports 21-40
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Note:** This method returns basic report information (id, name, description).
+    For detailed report information including field definitions, data, and execution results,
+    use GET /report/{report_id} endpoint if available.
     
     Args:
-        limit: Максимальное количество результатов (по умолчанию 20)
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
         
     Returns:
-        Список отчётов
+        str: JSON-formatted array of Report objects with pagination info
         
-    Example:
-        list_reports(10)
+    Examples:
+        list_reports() - Get first 20 available reports
+        list_reports(limit=50) - Get first 50 reports
+        list_reports(page=2, limit=10) - Get second page with 10 reports per page
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
-        request_data = {"limit": limit}
+        request_data = {
+            "offset": offset,
+            "limit": limit,
+            "page": page
+        }
         validated_request = validate_input(request_data, ListRequest)
         
-        logger.info(f"Получение списка отчётов: limit={validated_request.limit}")
+        logger.info(f"Получение списка отчётов: offset={validated_request.get_offset()}, limit={validated_request.limit}")
         
         if api is None:
             return "API не инициализирован"
             
         reports = await api.list_reports(limit=validated_request.limit)
         result = json.dumps([report.model_dump() for report in reports], indent=2, ensure_ascii=False)
+        
+        # Add pagination info
+        if len(reports) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(reports)} результатов (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(reports)} отчёт(ов)"
         
         logger.info(f"Найдено отчётов: {len(reports)}")
         return result
@@ -530,30 +894,80 @@ async def list_reports(limit: int = 20) -> str:
         return error_msg
 
 @mcp.tool()
-async def list_processes(limit: int = 20) -> str:
-    """Получить список процессов.
+async def list_processes(
+    offset: int = 0,
+    limit: int = 20,
+    page: Optional[int] = None
+) -> str:
+    """
+    List business processes in the Planfix system with pagination support.
+    
+    This endpoint returns basic process information including process names and status.
+    Returns minimal process metadata suitable for process selection and workflow overviews.
+    
+    **Response Schema (Process objects):**
+    - id (int): Unique process identifier
+    - name (str): Process name/title
+    - description (str, optional): Process description
+    - status (str, optional): Current process status
+    - created_date (str, optional): Process creation timestamp
+    - Additional basic process metadata
+    
+    **Pagination:**
+    Use either offset/limit or page/limit combinations:
+    - offset=0, limit=20: Get first 20 processes
+    - offset=20, limit=20: Get processes 21-40
+    - page=1, limit=20: Get first page (same as offset=0)
+    - page=2, limit=20: Get second page (same as offset=20)
+    
+    **Note:** This method returns basic process information (id, name, status).
+    For detailed process information including workflow steps, automation rules,
+    and configuration details, use GET /process/{process_id} endpoint if available.
     
     Args:
-        limit: Максимальное количество результатов (по умолчанию 20)
+        offset (int): Number of records to skip for pagination (0-based, default: 0)
+        limit (int): Maximum number of records per page (1-100, default: 20)
+        page (int, optional): Page number (1-based, alternative to offset)
         
     Returns:
-        Список процессов
+        str: JSON-formatted array of Process objects with pagination info
         
-    Example:
-        list_processes(10)
+    Examples:
+        list_processes() - Get first 20 business processes
+        list_processes(limit=50) - Get first 50 processes
+        list_processes(page=2, limit=15) - Get second page with 15 processes per page
+    
+    Raises:
+        PlanfixValidationError: Invalid input parameters
+        PlanfixError: API communication or server error
     """
     try:
         # Validate input parameters
-        request_data = {"limit": limit}
+        request_data = {
+            "offset": offset,
+            "limit": limit,
+            "page": page
+        }
         validated_request = validate_input(request_data, ListRequest)
         
-        logger.info(f"Получение списка процессов: limit={validated_request.limit}")
+        logger.info(f"Получение списка процессов: offset={validated_request.get_offset()}, limit={validated_request.limit}")
         
         if api is None:
             return "API не инициализирован"
             
         processes = await api.list_processes(limit=validated_request.limit)
         result = json.dumps([process.model_dump() for process in processes], indent=2, ensure_ascii=False)
+        
+        # Add pagination info
+        if len(processes) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(processes)} результатов (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(processes)} процесс(ов)"
         
         logger.info(f"Найдено процессов: {len(processes)}")
         return result
