@@ -47,7 +47,7 @@ class PlanfixAPI:
     
     def __init__(self):
         """Initialize API client with configuration."""
-        self.base_url = f"{config.planfix_account}.planfix.ru/rest"
+        self.base_url = f"https://{config.planfix_account}.planfix.ru/rest"
         self.timeout = config.request_timeout
         
         self.headers = {
