@@ -265,7 +265,7 @@ class PlanfixAPI:
 
     async def get_file(self, file_id: int, fields: Optional[Union[str, List[str]]] = None) -> FileResponse:
         """Get file by ID. Returns all known fields by default."""
-        default_fields = "id,name,size"
+        default_fields = "id,name,size,downloadUrl"
         if isinstance(fields, list):
             fields_param = ",".join(fields)
         elif isinstance(fields, str) and fields.strip():
@@ -278,7 +278,7 @@ class PlanfixAPI:
 
     async def get_user(self, user_id: Union[int, str], fields: Optional[Union[str, List[str]]] = None) -> UserResponse:
         """Get user by ID. Returns all known fields by default."""
-        default_fields = "id,name"
+        default_fields = "id, name, midname, lastname, gender, isDeleted, birthDate, groups, role, login, email, secondaryEmails, telegramId, telegram, status, phones, customFieldData, languageCode, position"
         if isinstance(fields, list):
             fields_param = ",".join(fields)
         elif isinstance(fields, str) and fields.strip():
