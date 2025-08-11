@@ -43,15 +43,10 @@ class PaginationMixin(BaseModel):
         return self.offset
 
 
-class TaskSearchRequest(PaginationMixin):
+class TaskListRequest(PaginationMixin):
     """
-    Validation model for task search parameters.
-    
-    Supports pagination via offset/limit or page/limit combinations.
-    Returns TaskResponse objects containing minimal task information.
-    Use get_task(task_id) for detailed task information.
+    Validation model for task list parameters with pagination and filters.
     """
-    query: str = Field(default="", description="Search query for task name (partial matching)")
     project_id: Optional[int] = Field(default=None, ge=1, description="Filter tasks by specific project ID")
     assignee_id: Optional[int] = Field(default=None, ge=1, description="Filter tasks by specific assignee user ID")
     status: str = Field(default="active", description="Task status filter")
@@ -65,14 +60,10 @@ class TaskSearchRequest(PaginationMixin):
         return v
 
 
-class ContactSearchRequest(PaginationMixin):
+class ContactListRequest(PaginationMixin):
     """
-    Validation model for contact search parameters.
-    
-    Returns ContactResponse objects with basic contact information.
-    For complete contact details including custom fields, use get_contact_details(contact_id).
+    Validation model for contact list parameters with pagination.
     """
-    query: str = Field(default="", max_length=255, description="Search query for contact name (partial matching)")
     is_company: bool = Field(default=False, description="Filter for company contacts only (excludes individuals)")
 
 
@@ -84,6 +75,11 @@ class ContactDetailsRequest(BaseModel):
     custom fields, companies, and detailed metadata.
     """
     contact_id: int = Field(..., ge=1, description="Unique contact identifier")
+
+class EntityByIdRequest(BaseModel):
+    """Validation model for GET-by-id requests with optional fields selection."""
+    id: int = Field(..., ge=1, description="Entity ID")
+    fields: Optional[str] = Field(default=None, description="Comma-separated field list")
 
 
 class ListRequest(PaginationMixin):
@@ -199,8 +195,7 @@ mcp = FastMCP(
 # ============================================================================
 
 @mcp.tool()
-async def search_tasks(
-    query: str = "",
+async def list_tasks(
     project_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     status: str = "active",
@@ -252,10 +247,9 @@ async def search_tasks(
         str: JSON-formatted array of TaskResponse objects with pagination info
         
     Examples:
-        search_tasks("website redesign") - Find tasks with "website redesign" in name
-        search_tasks(project_id=123, status="active") - Active tasks from project 123
-        search_tasks(assignee_id=456, limit=50) - Tasks assigned to user 456, 50 results
-        search_tasks(query="bug", page=2, limit=10) - Second page of bug-related tasks
+        list_tasks(project_id=123, status="active") - Active tasks from project 123
+        list_tasks(assignee_id=456, limit=50) - Tasks assigned to user 456, 50 results
+        list_tasks(page=2, limit=10) - Second page of tasks
     
     Raises:
         PlanfixValidationError: Invalid input parameters
@@ -264,7 +258,6 @@ async def search_tasks(
     try:
         # Validate input parameters with pagination support
         request_data = {
-            "query": query,
             "project_id": project_id,
             "assignee_id": assignee_id,
             "status": status,
@@ -272,20 +265,20 @@ async def search_tasks(
             "limit": limit,
             "page": page
         }
-        validated_request = validate_input(request_data, TaskSearchRequest)
+        validated_request = validate_input(request_data, TaskListRequest)
         
-        logger.info(f"Поиск задач: query='{validated_request.query}', status='{validated_request.status}', offset={validated_request.get_offset()}, limit={validated_request.limit}")
+        logger.info(f"Список задач: status='{validated_request.status}', offset={validated_request.get_offset()}, limit={validated_request.limit}")
         
         if api is None:
             return "API не инициализирован"
         
         # Search tasks via API using validated parameters
-        tasks = await api.search_tasks(
-            query=validated_request.query,
+        tasks = await api.list_tasks(
             project_id=validated_request.project_id,
             assignee_id=validated_request.assignee_id,
             status=validated_request.status,
-            limit=validated_request.limit
+            limit=validated_request.limit,
+            offset=validated_request.get_offset()
         )
         
         # Format and return results
@@ -330,9 +323,10 @@ async def search_tasks(
 # ============================================================================
 
 @mcp.tool()
-async def search_contacts(
-    query: str = "",
+async def list_contacts(
+    offset: int = 0,
     limit: int = 20,
+    page: Optional[int] = None,
     is_company: bool = False
 ) -> str:
     """Поиск контактов в Planfix.
@@ -346,29 +340,41 @@ async def search_contacts(
         Отформатированный список найденных контактов
         
     Example:
-        search_contacts("Иван", 10)
+        list_contacts(10)
     """
     try:
         # Validate input parameters
         request_data = {
-            "query": query,
+            "offset": offset,
             "limit": limit,
+            "page": page,
             "is_company": is_company
         }
-        validated_request = validate_input(request_data, ContactSearchRequest)
+        validated_request = validate_input(request_data, ContactListRequest)
         
-        logger.info(f"Поиск контактов: query='{validated_request.query}', is_company={validated_request.is_company}")
+        logger.info(f"Список контактов: is_company={validated_request.is_company}")
         
         if api is None:
             return "API не инициализирован"
             
-        contacts = await api.search_contacts(
-            query=validated_request.query, 
+        contacts = await api.list_contacts(
             limit=validated_request.limit,
+            offset=validated_request.get_offset(),
             is_company=validated_request.is_company
         )
         result = json.dumps([contact.model_dump() for contact in contacts], indent=2, ensure_ascii=False)
-        
+
+        # Add pagination info
+        if len(contacts) >= validated_request.limit:
+            result += f"\n\nПоказаны {len(contacts)} результатов (лимит: {validated_request.limit})"
+            if validated_request.page:
+                result += f", страница {validated_request.page}"
+            else:
+                result += f", смещение {validated_request.get_offset()}"
+            result += ". Используйте параметры offset/page для получения следующих результатов."
+        else:
+            result += f"\n\nВсего найдено: {len(contacts)} контакт(ов)"
+
         logger.info(f"Найдено контактов: {len(contacts)}")
         return result
         
@@ -389,7 +395,7 @@ async def get_contact_details(contact_id: int) -> str:
     This endpoint returns complete contact information including all available fields,
     custom field data, associated companies, phone numbers, and full metadata.
     This provides significantly more detail than the basic contact information
-    returned by search_contacts().
+    returned by list_contacts().
     
     **Complete ContactResponse Schema:**
     - id (int): Unique contact identifier
@@ -419,7 +425,7 @@ async def get_contact_details(contact_id: int) -> str:
     - Social media fields: skype, telegram, facebook, instagram, vk, etc.
     
     **Difference from search_contacts():**
-    - search_contacts(): Returns basic contact info suitable for lists (id, name, email, position)
+    - list_contacts(): Returns basic contact info suitable for lists (id, name, email, position)
     - get_contact_details(): Returns complete contact record with all fields and relationships
     
     Args:
@@ -486,6 +492,58 @@ async def get_contact_details(contact_id: int) -> str:
         return error_msg
 
 @mcp.tool()
+async def get_comment(comment_id: int, fields: Optional[str] = None) -> str:
+    """Get a comment by ID with optional fields selection."""
+    try:
+        request_data = {"id": comment_id, "fields": fields}
+        validated = validate_input(request_data, EntityByIdRequest)
+        if api is None:
+            return "API не инициализирован"
+        comment = await api.get_comment(validated.id, validated.fields)
+        return json.dumps(comment.model_dump(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return format_error(e, "получении комментария")
+
+@mcp.tool()
+async def get_file(file_id: int, fields: Optional[str] = None) -> str:
+    """Get a file by ID with optional fields selection."""
+    try:
+        request_data = {"id": file_id, "fields": fields}
+        validated = validate_input(request_data, EntityByIdRequest)
+        if api is None:
+            return "API не инициализирован"
+        file = await api.get_file(validated.id, validated.fields)
+        return json.dumps(file.model_dump(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return format_error(e, "получении файла")
+
+@mcp.tool()
+async def get_project(project_id: int, fields: Optional[str] = None) -> str:
+    """Get a project by ID with optional fields selection."""
+    try:
+        request_data = {"id": project_id, "fields": fields}
+        validated = validate_input(request_data, EntityByIdRequest)
+        if api is None:
+            return "API не инициализирован"
+        project = await api.get_project(validated.id, validated.fields)
+        return json.dumps(project.model_dump(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return format_error(e, "получении проекта")
+
+@mcp.tool()
+async def get_user(user_id: int, fields: Optional[str] = None) -> str:
+    """Get a user by ID with optional fields selection."""
+    try:
+        request_data = {"id": user_id, "fields": fields}
+        validated = validate_input(request_data, EntityByIdRequest)
+        if api is None:
+            return "API не инициализирован"
+        user = await api.get_user(validated.id, validated.fields)
+        return json.dumps(user.model_dump(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return format_error(e, "получении пользователя")
+
+@mcp.tool()
 async def list_employees(
     offset: int = 0,
     limit: int = 20,
@@ -548,7 +606,7 @@ async def list_employees(
         if api is None:
             return "API не инициализирован"
             
-        employees = await api.list_employees(limit=validated_request.limit)
+        employees = await api.list_employees(limit=validated_request.limit, offset=validated_request.get_offset())
         result = json.dumps([employee.model_dump() for employee in employees], indent=2, ensure_ascii=False)
         
         # Add pagination info
@@ -652,8 +710,9 @@ async def list_files(
             return "API не инициализирован"
             
         files = await api.list_files(
-            limit=validated_request.limit, 
-            task_id=validated_request.task_id, 
+            limit=validated_request.limit,
+            offset=validated_request.get_offset(),
+            task_id=validated_request.task_id,
             project_id=validated_request.project_id
         )
         result = json.dumps([file.model_dump() for file in files], indent=2, ensure_ascii=False)
@@ -770,8 +829,9 @@ async def list_comments(
             return "API не инициализирован"
             
         comments = await api.list_comments(
-            limit=validated_request.limit, 
-            task_id=validated_request.task_id, 
+            limit=validated_request.limit,
+            offset=validated_request.get_offset(),
+            task_id=validated_request.task_id,
             project_id=validated_request.project_id
         )
         result = json.dumps([comment.model_dump() for comment in comments], indent=2, ensure_ascii=False)
@@ -867,7 +927,7 @@ async def list_reports(
         if api is None:
             return "API не инициализирован"
             
-        reports = await api.list_reports(limit=validated_request.limit)
+        reports = await api.list_reports(limit=validated_request.limit, offset=validated_request.get_offset())
         result = json.dumps([report.model_dump() for report in reports], indent=2, ensure_ascii=False)
         
         # Add pagination info
@@ -955,7 +1015,7 @@ async def list_processes(
         if api is None:
             return "API не инициализирован"
             
-        processes = await api.list_processes(limit=validated_request.limit)
+        processes = await api.list_processes(limit=validated_request.limit, offset=validated_request.get_offset())
         result = json.dumps([process.model_dump() for process in processes], indent=2, ensure_ascii=False)
         
         # Add pagination info
@@ -990,8 +1050,8 @@ async def get_dashboard_summary() -> str:
     """Сводка по рабочему пространству Planfix."""
     try:
         # Get current data
-        active_tasks = await api.search_tasks(status="active")
-        projects = await api.get_projects()
+        active_tasks = await api.list_tasks(status="active")
+        projects = await api.list_projects()
         
         # Calculate stats
         active_count = len(active_tasks)
@@ -1027,7 +1087,7 @@ async def get_dashboard_summary() -> str:
 async def get_projects_list() -> str:
     """Список всех проектов."""
     try:
-        projects = await api.get_projects()
+        projects = await api.list_projects()
         
         if not projects:
             return "Проекты не найдены."
@@ -1106,24 +1166,39 @@ async def get_task_details(task_id: str) -> str:
 async def get_recent_contacts() -> str:
     """Список недавно добавленных контактов."""
     try:
-        contacts = await api.get_contacts(limit=10)
+        contacts = await api.list_contacts(limit=10)
         
         if not contacts:
             return "Контакты не найдены."
         
         result = f"Недавние контакты ({len(contacts)} шт.)\n\n"
-        
+
         for i, contact in enumerate(contacts, 1):
-            result += f"{i}. {contact.name} (#{contact.id})\n"
-            
-            if contact.email:
-                result += f"- Email: {contact.email}\n"
-            if contact.phone:
-                result += f"- Телефон: {contact.phone}\n"
-            if contact.company:
-                result += f"- Компания: {contact.company}\n"
-            if contact.position:
-                result += f"- Должность: {contact.position}\n"
+            contact_id = getattr(contact, 'id', None) or 0
+            contact_name = getattr(contact, 'name', None) or "Без имени"
+            result += f"{i}. {contact_name} (#{contact_id})\n"
+
+            email = getattr(contact, 'email', None)
+            if email:
+                result += f"- Email: {email}\n"
+
+            phone = None
+            phones = getattr(contact, 'phones', None)
+            if phones and len(phones) > 0 and getattr(phones[0], 'number', None):
+                phone = phones[0].number
+            if phone:
+                result += f"- Телефон: {phone}\n"
+
+            companies = getattr(contact, 'companies', None)
+            if companies:
+                company_names = [c.name for c in companies if getattr(c, 'name', None)]
+                if company_names:
+                    result += f"- Компания: {', '.join(company_names)}\n"
+
+            position = getattr(contact, 'position', None)
+            if position:
+                result += f"- Должность: {position}\n"
+
             result += "\n"
         
         return result.strip()

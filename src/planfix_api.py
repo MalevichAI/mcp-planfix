@@ -150,18 +150,34 @@ class PlanfixAPI:
         
         result = await self._request("GET", f"task/{task_id}", params=params)
         return self._validate_response(result, TaskResponse, "task")
+
+    async def get_project(self, project_id: int, fields: Optional[Union[str, List[str]]] = None) -> ProjectResponse:
+        """Get project by ID. Returns all known fields by default."""
+        default_fields = (
+            "id,template,name,description,owner,client,isDeleted,startDate,endDate,"
+            "createdDate,dateOfLastUpdate,sourceObjectId,sourceDataVersion"
+        )
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = default_fields
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"project/{project_id}", params=params)
+        return self._validate_response(result, ProjectResponse, "project")
     
-    async def search_tasks(
+    async def list_tasks(
         self,
-        query: str = "",
         project_id: Optional[int] = None,
         assignee_id: Optional[int] = None,
         status: str = "active",
-        limit: int = 20
+        limit: int = 20,
+        offset: int = 0
     ) -> List[TaskResponse]:
-        """Search tasks with filters using proper API endpoint."""
+        """List tasks with filters using proper API endpoint."""
         data = {
-            "offset": 0,
+            "offset": offset,
             "pageSize": limit,
             "fields": "id,name,description,priority,status,assigner,assignees,project,startDateTime,endDateTime"
         }
@@ -190,17 +206,6 @@ class PlanfixAPI:
         result = await self._request("POST", "task/list", data=data)
         return self._validate_list_response(result, TaskResponse, "tasks")
     
-    async def create_task(self, task_data: TaskCreateRequest) -> int:
-        """Create a new task."""
-        result = await self._request("POST", "task/", data=task_data.model_dump(exclude_none=True))
-        return result.get("id", 0)
-    
-    async def update_task(self, task_id: int, task_data: TaskUpdateRequest, silent: bool = False) -> bool:
-        """Update a task."""
-        params = {"silent": silent} if silent else {}
-        await self._request("POST", f"task/{task_id}", data=task_data.model_dump(exclude_none=True), params=params)
-        return True
-    
     # Contact operations
     async def get_contact(self, contact_id: Union[int, str], fields: Optional[str] = None) -> ContactResponse:
         """Get contact by ID using proper API endpoint."""
@@ -212,43 +217,96 @@ class PlanfixAPI:
         
         result = await self._request("GET", f"contact/{contact_id}", params=params)
         return self._validate_response(result, ContactResponse, "contact")
+
+    async def get_contact_details(
+        self,
+        contact_id: Union[int, str],
+        fields: Optional[Union[str, List[str]]] = None
+    ) -> ContactResponse:
+        """Get full contact details by ID.
+
+        By default returns all documented fields. You can override the returned
+        fields by providing a comma-separated string or a list of field names.
+        """
+        # All known system fields for contact entity
+        all_fields = (
+            "id,template,name,midname,lastname,gender,description,address,site,email,"
+            "additionalEmailAddresses,skype,telegramId,telegram,facebook,instagram,vk,"
+            "position,group,isCompany,isDeleted,birthDate,createdDate,dateOfLastUpdate,"
+            "supervisors,phones,companies,contacts,files,dataTags,sourceObjectId,sourceDataVersion"
+        )
+
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = all_fields
+
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"contact/{contact_id}", params=params)
+        return self._validate_response(result, ContactResponse, "contact")
+
+    async def get_comment(self, comment_id: int, fields: Optional[Union[str, List[str]]] = None) -> CommentResponse:
+        """Get comment by ID. Returns all known fields by default."""
+        default_fields = (
+            "id,sourceObjectId,sourceDataVersion,dateTime,type,fromType,description,contact,project,"
+            "owner,isDeleted,isPinned,isHidden,isNotRead,recipients,reminders,dataTags,files"
+        )
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = default_fields
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"comment/{comment_id}", params=params)
+        return self._validate_response(result, CommentResponse, "comment")
+
+    async def get_file(self, file_id: int, fields: Optional[Union[str, List[str]]] = None) -> FileResponse:
+        """Get file by ID. Returns all known fields by default."""
+        default_fields = "id,name,size"
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = default_fields
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"file/{file_id}", params=params)
+        return self._validate_response(result, FileResponse, "file")
+
+    async def get_user(self, user_id: Union[int, str], fields: Optional[Union[str, List[str]]] = None) -> UserResponse:
+        """Get user by ID. Returns all known fields by default."""
+        default_fields = "id,name"
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = default_fields
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"user/{user_id}", params=params)
+        return self._validate_response(result, UserResponse, "user")
     
-    async def search_contacts(self, query: str = "", limit: int = 20, is_company: bool = False) -> List[ContactResponse]:
-        """Search contacts using proper API endpoint."""
+    async def list_contacts(self, limit: int = 20, offset: int = 0, is_company: bool = False) -> List[ContactResponse]:
+        """List contacts using proper API endpoint."""
         data = {
-            "offset": 0,
+            "offset": offset,
             "pageSize": limit,
             "isCompany": is_company,
             "fields": "id,name,midname,lastname,email,phones,position,description,isCompany,createdDate"
         }
-        
-        # Add text search filter if query provided
-        if query:
-            data["filters"] = [{
-                "type": 4001,  # Name search filter type
-                "operator": "equal",
-                "value": query
-            }]
-        
+
         result = await self._request("POST", "contact/list", data=data)
         return self._validate_list_response(result, ContactResponse, "contacts")
-    
-    async def create_contact(self, contact_data: ContactRequest) -> int:
-        """Create a new contact."""
-        result = await self._request("POST", "contact/", data=contact_data.model_dump(exclude_none=True))
-        return result.get("id")
-    
-    async def update_contact(self, contact_id: Union[int, str], contact_data: ContactRequest, silent: bool = False) -> bool:
-        """Update a contact."""
-        params = {"silent": silent} if silent else {}
-        await self._request("POST", f"contact/{contact_id}", data=contact_data.model_dump(exclude_none=True), params=params)
-        return True
+
     
     # Project operations  
-    async def get_projects(self, limit: int = 20) -> List[ProjectResponse]:
+    async def list_projects(self, limit: int = 20, offset: int = 0) -> List[ProjectResponse]:
         """Get list of projects."""
         data = {
-            "offset": 0,
+            "offset": offset,
             "pageSize": limit,
             "fields": "id,name,description,owner,client,startDate,endDate,isDeleted"
         }
@@ -257,10 +315,10 @@ class PlanfixAPI:
         return self._validate_list_response(result, ProjectResponse, "projects")
     
     # Employee operations
-    async def list_employees(self, limit: int = 20) -> List[UserResponse]:
+    async def list_employees(self, limit: int = 20, offset: int = 0) -> List[UserResponse]:
         """List employees/users."""
         data = {
-            "offset": 0,
+            "offset": offset,
             "pageSize": limit,
             "fields": "id,name,email,position"
         }
@@ -269,9 +327,9 @@ class PlanfixAPI:
         return self._validate_list_response(result, UserResponse, "users")
     
     # File operations
-    async def list_files(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[FileResponse]:
+    async def list_files(self, limit: int = 20, offset: int = 0, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[FileResponse]:
         """List files."""
-        data = {"pageSize": limit}
+        data = {"pageSize": limit, "offset": offset}
         if task_id:
             data["taskId"] = task_id
         if project_id:
@@ -281,10 +339,10 @@ class PlanfixAPI:
         return self._validate_list_response(result, FileResponse, "files")
     
     # Comment operations  
-    async def list_comments(self, limit: int = 20, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[CommentResponse]:
+    async def list_comments(self, limit: int = 20, offset: int = 0, task_id: Optional[int] = None, project_id: Optional[int] = None) -> List[CommentResponse]:
         """List comments."""
         data = {
-            "offset": 0,
+            "offset": offset,
             "pageSize": limit,
             "fields": "id,description,dateTime,owner,type"
         }
@@ -300,22 +358,18 @@ class PlanfixAPI:
             
         return self._validate_list_response(result, CommentResponse, "comments")
     
-    async def add_comment_to_contact(self, contact_id: Union[int, str], comment_data: CommentCreateRequest) -> int:
-        """Add comment to a contact."""
-        result = await self._request("POST", f"contact/{contact_id}/comments/", data=comment_data.model_dump(exclude_none=True))
-        return result.get("id")
     
     # Report operations
-    async def list_reports(self, limit: int = 20) -> List[Report]:
+    async def list_reports(self, limit: int = 20, offset: int = 0) -> List[Report]:
         """List reports."""
-        data = {"pageSize": limit}
+        data = {"pageSize": limit, "offset": offset}
         result = await self._request("POST", "report/list", data=data)
         return self._validate_list_response(result, Report, "reports")
     
     # Process operations
-    async def list_processes(self, limit: int = 20) -> List[Process]:
+    async def list_processes(self, limit: int = 20, offset: int = 0) -> List[Process]:
         """List processes."""
-        data = {"pageSize": limit}
+        data = {"pageSize": limit, "offset": offset}
         result = await self._request("POST", "process/list", data=data)
         
         # Map to legacy Process model for now
@@ -341,55 +395,4 @@ class PlanfixAPI:
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False
-
-    # Legacy methods for backwards compatibility
-    async def get_contacts(self, limit: int = 20) -> List[Contact]:
-        """Get recent contacts (legacy method)."""
-        contacts_response = await self.search_contacts(limit=limit)
-        
-        # Convert to legacy Contact model
-        contacts = []
-        for contact_data in contacts_response:
-            phone = ""
-            if contact_data.phones and len(contact_data.phones) > 0:
-                phone = contact_data.phones[0].number or ""
-            
-            contacts.append(Contact(
-                id=contact_data.id or 0,
-                name=contact_data.name or "",
-                midname=contact_data.midname or "",
-                lastname=contact_data.lastname or "",
-                email=contact_data.email or "",
-                phone=phone,
-                company="",  # Not directly available in new model
-                position=contact_data.position or "",
-                description=contact_data.description or "",
-                is_company=contact_data.isCompany or False,
-                created_date=contact_data.createdDate.datetime if contact_data.createdDate else ""
-            ))
-        
-        return contacts
-
-    async def get_contact_details(self, contact_id: int) -> Contact:
-        """Get contact details (legacy method)."""
-        contact_response = await self.get_contact(contact_id)
-        
-        phone = ""
-        if contact_response.phones and len(contact_response.phones) > 0:
-            phone = contact_response.phones[0].number or ""
-        
-        return Contact(
-            id=contact_response.id or 0,
-            name=contact_response.name or "",
-            midname=contact_response.midname or "",
-            lastname=contact_response.lastname or "",
-            email=contact_response.email or "",
-            phone=phone,
-            company="",  # Not directly available in new model
-            position=contact_response.position or "",
-            description=contact_response.description or "",
-            is_company=contact_response.isCompany or False,
-            created_date=contact_response.createdDate.datetime if contact_response.createdDate else ""
-        )
-
 
