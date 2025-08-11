@@ -288,6 +288,19 @@ class PlanfixAPI:
         params = {"fields": fields_param}
         result = await self._request("GET", f"user/{user_id}", params=params)
         return self._validate_response(result, UserResponse, "user")
+
+    async def get_report(self, report_id: int, fields: Optional[Union[str, List[str]]] = None) -> Report:
+        """Get report by ID. Returns all available fields by default."""
+        default_fields = "id,name,fields"
+        if isinstance(fields, list):
+            fields_param = ",".join(fields)
+        elif isinstance(fields, str) and fields.strip():
+            fields_param = fields
+        else:
+            fields_param = default_fields
+        params = {"fields": fields_param}
+        result = await self._request("GET", f"report/{report_id}", params=params)
+        return self._validate_response(result, Report, "report")
     
     async def list_contacts(self, limit: int = 20, offset: int = 0, is_company: bool = False) -> List[ContactResponse]:
         """List contacts using proper API endpoint."""

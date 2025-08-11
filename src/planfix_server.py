@@ -544,6 +544,19 @@ async def get_user(user_id: int, fields: Optional[str] = None) -> str:
         return format_error(e, "получении пользователя")
 
 @mcp.tool()
+async def get_report(report_id: int, fields: Optional[str] = None) -> str:
+    """Get a report by ID with optional fields selection."""
+    try:
+        request_data = {"id": report_id, "fields": fields}
+        validated = validate_input(request_data, EntityByIdRequest)
+        if api is None:
+            return "API не инициализирован"
+        report = await api.get_report(validated.id, validated.fields)
+        return json.dumps(report.model_dump(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return format_error(e, "получении отчёта")
+
+@mcp.tool()
 async def list_employees(
     offset: int = 0,
     limit: int = 20,
